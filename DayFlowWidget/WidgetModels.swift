@@ -54,6 +54,9 @@ struct DashboardEntry: TimelineEntry {
     let eventCount: Int
     let reminderCount: Int
     let overdueCount: Int
+    let showCalendar: Bool
+    let showReminders: Bool
+    let maxItems: Int
 
     static var placeholder: DashboardEntry {
         DashboardEntry(
@@ -62,7 +65,10 @@ struct DashboardEntry: TimelineEntry {
             reminders: [],
             eventCount: 3,
             reminderCount: 5,
-            overdueCount: 1
+            overdueCount: 1,
+            showCalendar: true,
+            showReminders: true,
+            maxItems: 5
         )
     }
 }

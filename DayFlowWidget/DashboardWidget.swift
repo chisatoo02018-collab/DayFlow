@@ -2,35 +2,37 @@ import SwiftUI
 import WidgetKit
 import EventKit
 
-struct DashboardProvider: TimelineProvider {
+struct DashboardProvider: AppIntentTimelineProvider {
     private let store = EKEventStore()
 
     func placeholder(in context: Context) -> DashboardEntry {
         .placeholder
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (DashboardEntry) -> Void) {
-        completion(fetchEntry())
+    func snapshot(for configuration: DashboardWidgetIntent, in context: Context) async -> DashboardEntry {
+        fetchEntry(configuration: configuration)
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<DashboardEntry>) -> Void) {
-        let entry = fetchEntry()
+    func timeline(for configuration: DashboardWidgetIntent, in context: Context) async -> Timeline<DashboardEntry> {
+        let entry = fetchEntry(configuration: configuration)
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
-        completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
+        return Timeline(entries: [entry], policy: .after(nextUpdate))
     }
 
-    private func fetchEntry() -> DashboardEntry {
+    private func fetchEntry(configuration: DashboardWidgetIntent) -> DashboardEntry {
         let calendar = Calendar.current
         let startOfDay = calendar.startOfDay(for: Date())
         guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else {
             return .placeholder
         }
 
-        let eventPredicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: nil)
-        let ekEvents = store.events(matching: eventPredicate)
-            .sorted { $0.startDate < $1.startDate }
+        let showCalendar = configuration.displayMode != .remindersOnly
+        let showReminders = configuration.displayMode != .calendarOnly
+        let maxItems = configuration.maxItems.rawValue
 
-        let events = ekEvents.prefix(6).map { WidgetCalendarEvent(from: $0) }
+        let eventPredicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: nil)
+        let ekEvents = store.events(matching: eventPredicate).sorted { $0.startDate < $1.startDate }
+        let events = ekEvents.prefix(maxItems).map { WidgetCalendarEvent(from: $0) }
 
         var reminders: [WidgetReminderItem] = []
         var reminderCount = 0
@@ -53,7 +55,7 @@ struct DashboardProvider: TimelineProvider {
                     .sorted {
                         ($0.dueDateComponents?.date ?? .distantFuture) < ($1.dueDateComponents?.date ?? .distantFuture)
                     }
-                    .prefix(5)
+                    .prefix(maxItems)
                     .map { WidgetReminderItem(from: $0) }
             }
             semaphore.signal()
@@ -66,7 +68,10 @@ struct DashboardProvider: TimelineProvider {
             reminders: reminders,
             eventCount: ekEvents.count,
             reminderCount: reminderCount,
-            overdueCount: overdueCount
+            overdueCount: overdueCount,
+            showCalendar: showCalendar,
+            showReminders: showReminders,
+            maxItems: maxItems
         )
     }
 }
@@ -75,7 +80,7 @@ struct DashboardWidget: Widget {
     let kind = "DashboardWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: DashboardProvider()) { entry in
+        AppIntentConfiguration(kind: kind, intent: DashboardWidgetIntent.self, provider: DashboardProvider()) { entry in
             DashboardWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
@@ -115,7 +120,7 @@ struct DashboardWidgetView: View {
 
             Divider()
 
-            if let next = entry.events.first(where: { $0.startDate > Date() }) {
+            if entry.showCalendar, let next = entry.events.first(where: { $0.startDate > Date() }) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Next")
                         .font(.caption2)
@@ -127,8 +132,18 @@ struct DashboardWidgetView: View {
                         .font(.caption)
                         .foregroundStyle(next.color)
                 }
+            } else if entry.showReminders, let first = entry.reminders.first {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Next Task")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(first.title)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(2)
+                        .foregroundStyle(first.isOverdue ? .red : .primary)
+                }
             } else {
-                Text("No upcoming events")
+                Text("No upcoming items")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -136,8 +151,12 @@ struct DashboardWidgetView: View {
             Spacer()
 
             HStack(spacing: 12) {
-                Label("\(entry.eventCount)", systemImage: "calendar")
-                Label("\(entry.reminderCount)", systemImage: "checklist")
+                if entry.showCalendar {
+                    Label("\(entry.eventCount)", systemImage: "calendar")
+                }
+                if entry.showReminders {
+                    Label("\(entry.reminderCount)", systemImage: "checklist")
+                }
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -146,70 +165,70 @@ struct DashboardWidgetView: View {
 
     private var mediumView: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Events", systemImage: "calendar")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.blue)
-
-                if entry.events.isEmpty {
-                    Text("No events")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(entry.events.prefix(3)) { event in
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(event.color)
-                                .frame(width: 6, height: 6)
-                            Text(event.timeText)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 50, alignment: .leading)
-                            Text(event.title)
-                                .font(.caption)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Label("Reminders", systemImage: "checklist")
+            if entry.showCalendar {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Events", systemImage: "calendar")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.green)
-                    Spacer()
-                    if entry.overdueCount > 0 {
-                        Text("\(entry.overdueCount) overdue")
-                            .font(.caption2)
-                            .foregroundStyle(.red)
-                    }
-                }
+                        .foregroundStyle(.blue)
 
-                if entry.reminders.isEmpty {
-                    Text("All done!")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(entry.reminders.prefix(3)) { item in
-                        HStack(spacing: 6) {
-                            Image(systemName: "circle")
-                                .font(.caption2)
-                                .foregroundStyle(item.color)
-                            Text(item.title)
-                                .font(.caption)
-                                .lineLimit(1)
-                                .foregroundStyle(item.isOverdue ? .red : .primary)
+                    if entry.events.isEmpty {
+                        Text("No events")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(entry.events.prefix(entry.maxItems)) { event in
+                            HStack(spacing: 6) {
+                                Circle().fill(event.color).frame(width: 6, height: 6)
+                                Text(event.timeText)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 50, alignment: .leading)
+                                Text(event.title).font(.caption).lineLimit(1)
+                            }
                         }
                     }
+                    Spacer()
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if entry.showCalendar && entry.showReminders {
+                Divider()
+            }
+
+            if entry.showReminders {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("Reminders", systemImage: "checklist")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                        Spacer()
+                        if entry.overdueCount > 0 {
+                            Text("\(entry.overdueCount) overdue")
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
+                    if entry.reminders.isEmpty {
+                        Text("All done!")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(entry.reminders.prefix(entry.maxItems)) { item in
+                            HStack(spacing: 6) {
+                                Image(systemName: "circle")
+                                    .font(.caption2)
+                                    .foregroundStyle(item.color)
+                                Text(item.title).font(.caption).lineLimit(1)
+                                    .foregroundStyle(item.isOverdue ? .red : .primary)
+                            }
+                        }
+                    }
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -225,64 +244,66 @@ struct DashboardWidgetView: View {
                 }
                 Spacer()
                 HStack(spacing: 16) {
-                    statBadge(value: entry.eventCount, icon: "calendar", color: .blue)
-                    statBadge(value: entry.reminderCount, icon: "checklist", color: .green)
-                    if entry.overdueCount > 0 {
-                        statBadge(value: entry.overdueCount, icon: "exclamationmark.triangle", color: .red)
+                    if entry.showCalendar {
+                        statBadge(value: entry.eventCount, icon: "calendar", color: .blue)
                     }
-                }
-            }
-
-            Divider()
-
-            Label("Calendar", systemImage: "calendar")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.blue)
-
-            if entry.events.isEmpty {
-                Text("No events today")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(entry.events.prefix(4)) { event in
-                    HStack(spacing: 8) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(event.color)
-                            .frame(width: 3)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(event.title)
-                                .font(.caption.weight(.medium))
-                                .lineLimit(1)
-                            Text(event.timeText)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                    if entry.showReminders {
+                        statBadge(value: entry.reminderCount, icon: "checklist", color: .green)
+                        if entry.overdueCount > 0 {
+                            statBadge(value: entry.overdueCount, icon: "exclamationmark.triangle", color: .red)
                         }
                     }
-                    .frame(height: 28)
                 }
             }
 
             Divider()
 
-            Label("Reminders", systemImage: "checklist")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.green)
+            if entry.showCalendar {
+                Label("Calendar", systemImage: "calendar")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.blue)
 
-            if entry.reminders.isEmpty {
-                Text("All caught up!")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(entry.reminders.prefix(4)) { item in
-                    HStack(spacing: 6) {
-                        Image(systemName: "circle")
-                            .font(.caption2)
-                            .foregroundStyle(item.color)
-                        Text(item.title)
-                            .font(.caption)
-                            .lineLimit(1)
-                            .foregroundStyle(item.isOverdue ? .red : .primary)
-                        Spacer()
+                if entry.events.isEmpty {
+                    Text("No events today")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(entry.events.prefix(entry.maxItems)) { event in
+                        HStack(spacing: 8) {
+                            RoundedRectangle(cornerRadius: 2).fill(event.color).frame(width: 3)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(event.title).font(.caption.weight(.medium)).lineLimit(1)
+                                Text(event.timeText).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(height: 28)
+                    }
+                }
+            }
+
+            if entry.showCalendar && entry.showReminders {
+                Divider()
+            }
+
+            if entry.showReminders {
+                Label("Reminders", systemImage: "checklist")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
+
+                if entry.reminders.isEmpty {
+                    Text("All caught up!")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(entry.reminders.prefix(entry.maxItems)) { item in
+                        HStack(spacing: 6) {
+                            Image(systemName: "circle")
+                                .font(.caption2)
+                                .foregroundStyle(item.color)
+                            Text(item.title).font(.caption).lineLimit(1)
+                                .foregroundStyle(item.isOverdue ? .red : .primary)
+                            Spacer()
+                        }
                     }
                 }
             }
@@ -293,10 +314,8 @@ struct DashboardWidgetView: View {
 
     private func statBadge(value: Int, icon: String, color: Color) -> some View {
         HStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.caption2)
-            Text("\(value)")
-                .font(.caption.weight(.semibold))
+            Image(systemName: icon).font(.caption2)
+            Text("\(value)").font(.caption.weight(.semibold))
         }
         .foregroundStyle(color)
     }

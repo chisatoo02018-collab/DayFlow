@@ -3,29 +3,30 @@ import WidgetKit
 import EventKit
 import Charts
 
-struct TrendChartProvider: TimelineProvider {
+struct TrendChartProvider: AppIntentTimelineProvider {
     private let store = EKEventStore()
 
     func placeholder(in context: Context) -> TrendChartEntry {
         .placeholder
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (TrendChartEntry) -> Void) {
-        completion(fetchEntry())
+    func snapshot(for configuration: TrendChartIntent, in context: Context) async -> TrendChartEntry {
+        fetchEntry(configuration: configuration)
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<TrendChartEntry>) -> Void) {
-        let entry = fetchEntry()
+    func timeline(for configuration: TrendChartIntent, in context: Context) async -> Timeline<TrendChartEntry> {
+        let entry = fetchEntry(configuration: configuration)
         let nextUpdate = Calendar.current.date(byAdding: .hour, value: 1, to: Date()) ?? Date()
-        completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
+        return Timeline(entries: [entry], policy: .after(nextUpdate))
     }
 
-    private func fetchEntry() -> TrendChartEntry {
+    private func fetchEntry(configuration: TrendChartIntent) -> TrendChartEntry {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
+        let days = configuration.period.rawValue
 
         var stats: [DailyStats] = []
-        for offset in (0..<7).reversed() {
+        for offset in (0..<days).reversed() {
             guard let dayStart = cal.date(byAdding: .day, value: -offset, to: today),
                   let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) else { continue }
 
@@ -62,7 +63,14 @@ struct TrendChartProvider: TimelineProvider {
             ))
         }
 
-        return TrendChartEntry(date: Date(), dailyStats: stats)
+        let showEvents = configuration.displayContent != .completionsOnly
+        let showCompletions = configuration.displayContent != .eventsOnly
+
+        return TrendChartEntry(
+            date: Date(), dailyStats: stats,
+            showEvents: showEvents, showCompletions: showCompletions,
+            showCompletionRate: configuration.showCompletionRate
+        )
     }
 }
 
@@ -70,12 +78,12 @@ struct TrendChartWidget: Widget {
     let kind = "TrendChartWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: TrendChartProvider()) { entry in
+        AppIntentConfiguration(kind: kind, intent: TrendChartIntent.self, provider: TrendChartProvider()) { entry in
             TrendChartWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Weekly Trend")
-        .description("Track your events and task completion over the past 7 days.")
+        .configurationDisplayName("Activity Trend")
+        .description("Track your events and task completion trends.")
         .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
@@ -83,6 +91,10 @@ struct TrendChartWidget: Widget {
 struct TrendChartWidgetView: View {
     @Environment(\.widgetFamily) var family
     let entry: TrendChartEntry
+
+    private var periodLabel: String {
+        "\(entry.dailyStats.count)-Day Trend"
+    }
 
     var body: some View {
         switch family {
@@ -96,17 +108,14 @@ struct TrendChartWidgetView: View {
     private var mediumView: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Label("7-Day Trend", systemImage: "chart.line.uptrend.xyaxis")
+                Label(periodLabel, systemImage: "chart.line.uptrend.xyaxis")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.blue)
                 Spacer()
-                HStack(spacing: 8) {
-                    legendDot(color: .blue, label: "Events")
-                    legendDot(color: .green, label: "Done")
-                }
+                chartLegend
             }
 
-            eventAndCompletionChart
+            activityChart
                 .frame(maxHeight: .infinity)
         }
     }
@@ -115,64 +124,79 @@ struct TrendChartWidgetView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading) {
-                    Text("Weekly Overview")
+                    Text("Overview")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("7-Day Trend")
+                    Text(periodLabel)
                         .font(.headline.weight(.bold))
                 }
                 Spacer()
-                HStack(spacing: 8) {
-                    legendDot(color: .blue, label: "Events")
-                    legendDot(color: .green, label: "Done")
-                }
+                chartLegend
             }
 
             Text("Activity")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            eventAndCompletionChart
+            activityChart
                 .frame(height: 120)
 
-            Divider()
+            if entry.showCompletionRate {
+                Divider()
 
-            Text("Completion Rate")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                Text("Completion Rate")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
-            completionRateChart
-                .frame(height: 100)
+                completionRateChart
+                    .frame(height: 100)
+            }
 
             Spacer(minLength: 0)
         }
     }
 
-    private var eventAndCompletionChart: some View {
-        Chart(entry.dailyStats) { stat in
-            LineMark(
-                x: .value("Day", stat.date, unit: .day),
-                y: .value("Events", stat.eventCount)
-            )
-            .foregroundStyle(.blue)
-            .symbol(Circle())
-            .interpolationMethod(.catmullRom)
+    @ViewBuilder
+    private var chartLegend: some View {
+        HStack(spacing: 8) {
+            if entry.showEvents {
+                legendDot(color: .blue, label: "Events")
+            }
+            if entry.showCompletions {
+                legendDot(color: .green, label: "Done")
+            }
+        }
+    }
 
-            LineMark(
-                x: .value("Day", stat.date, unit: .day),
-                y: .value("Completed", stat.completedCount)
-            )
-            .foregroundStyle(.green)
-            .symbol(Diamond())
-            .interpolationMethod(.catmullRom)
+    private var activityChart: some View {
+        Chart(entry.dailyStats) { stat in
+            if entry.showEvents {
+                LineMark(
+                    x: .value("Day", stat.date, unit: .day),
+                    y: .value("Events", stat.eventCount)
+                )
+                .foregroundStyle(.blue)
+                .symbol(Circle())
+                .interpolationMethod(.catmullRom)
+            }
+
+            if entry.showCompletions {
+                LineMark(
+                    x: .value("Day", stat.date, unit: .day),
+                    y: .value("Completed", stat.completedCount)
+                )
+                .foregroundStyle(.green)
+                .symbol(Diamond())
+                .interpolationMethod(.catmullRom)
+            }
         }
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day)) { value in
+            AxisMarks(values: .stride(by: .day)) { _ in
                 AxisValueLabel(format: .dateTime.weekday(.narrow))
             }
         }
         .chartYAxis {
-            AxisMarks(position: .leading) { value in
+            AxisMarks(position: .leading) { _ in
                 AxisGridLine()
                 AxisValueLabel()
             }
@@ -193,7 +217,7 @@ struct TrendChartWidgetView: View {
         }
         .chartYScale(domain: 0...100)
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day)) { value in
+            AxisMarks(values: .stride(by: .day)) { _ in
                 AxisValueLabel(format: .dateTime.weekday(.narrow))
             }
         }

@@ -2,24 +2,24 @@ import SwiftUI
 import WidgetKit
 import EventKit
 
-struct CompletionChartProvider: TimelineProvider {
+struct CompletionChartProvider: AppIntentTimelineProvider {
     private let store = EKEventStore()
 
     func placeholder(in context: Context) -> CompletionChartEntry {
         .placeholder
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (CompletionChartEntry) -> Void) {
-        completion(fetchEntry())
+    func snapshot(for configuration: CompletionChartIntent, in context: Context) async -> CompletionChartEntry {
+        fetchEntry(configuration: configuration)
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<CompletionChartEntry>) -> Void) {
-        let entry = fetchEntry()
+    func timeline(for configuration: CompletionChartIntent, in context: Context) async -> Timeline<CompletionChartEntry> {
+        let entry = fetchEntry(configuration: configuration)
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
-        completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
+        return Timeline(entries: [entry], policy: .after(nextUpdate))
     }
 
-    private func fetchEntry() -> CompletionChartEntry {
+    private func fetchEntry(configuration: CompletionChartIntent) -> CompletionChartEntry {
         let cal = Calendar.current
         let now = Date()
         let startOfDay = cal.startOfDay(for: now)
@@ -30,12 +30,16 @@ struct CompletionChartProvider: TimelineProvider {
               let startOfYear = cal.dateInterval(of: .year, for: now)?.start
         else { return .placeholder }
 
-        let day = fetchCompletion(from: startOfDay, to: endOfDay)
-        let week = fetchCompletion(from: startOfWeek, to: endOfDay)
-        let month = fetchCompletion(from: startOfMonth, to: endOfDay)
-        let year = fetchCompletion(from: startOfYear, to: endOfDay)
+        let day = configuration.showDay ? fetchCompletion(from: startOfDay, to: endOfDay) : .placeholder
+        let week = configuration.showWeek ? fetchCompletion(from: startOfWeek, to: endOfDay) : .placeholder
+        let month = configuration.showMonth ? fetchCompletion(from: startOfMonth, to: endOfDay) : .placeholder
+        let year = configuration.showYear ? fetchCompletion(from: startOfYear, to: endOfDay) : .placeholder
 
-        return CompletionChartEntry(date: now, day: day, week: week, month: month, year: year)
+        return CompletionChartEntry(
+            date: now, day: day, week: week, month: month, year: year,
+            showDay: configuration.showDay, showWeek: configuration.showWeek,
+            showMonth: configuration.showMonth, showYear: configuration.showYear
+        )
     }
 
     private func fetchCompletion(from start: Date, to end: Date) -> PeriodCompletion {
@@ -69,7 +73,7 @@ struct CompletionChartWidget: Widget {
     let kind = "CompletionChartWidget"
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: CompletionChartProvider()) { entry in
+        AppIntentConfiguration(kind: kind, intent: CompletionChartIntent.self, provider: CompletionChartProvider()) { entry in
             CompletionChartWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
@@ -130,16 +134,24 @@ struct CompletionChartWidgetView: View {
     let entry: CompletionChartEntry
 
     private var rings: [RingData] {
-        [
-            RingData(id: "year", label: "Year", rate: entry.year.rate,
-                     completed: entry.year.completed, total: entry.year.total, color: .purple),
-            RingData(id: "month", label: "Month", rate: entry.month.rate,
-                     completed: entry.month.completed, total: entry.month.total, color: .blue),
-            RingData(id: "week", label: "Week", rate: entry.week.rate,
-                     completed: entry.week.completed, total: entry.week.total, color: .orange),
-            RingData(id: "day", label: "Day", rate: entry.day.rate,
-                     completed: entry.day.completed, total: entry.day.total, color: .green),
-        ]
+        var result: [RingData] = []
+        if entry.showYear {
+            result.append(RingData(id: "year", label: "Year", rate: entry.year.rate,
+                                   completed: entry.year.completed, total: entry.year.total, color: .purple))
+        }
+        if entry.showMonth {
+            result.append(RingData(id: "month", label: "Month", rate: entry.month.rate,
+                                   completed: entry.month.completed, total: entry.month.total, color: .blue))
+        }
+        if entry.showWeek {
+            result.append(RingData(id: "week", label: "Week", rate: entry.week.rate,
+                                   completed: entry.week.completed, total: entry.week.total, color: .orange))
+        }
+        if entry.showDay {
+            result.append(RingData(id: "day", label: "Day", rate: entry.day.rate,
+                                   completed: entry.day.completed, total: entry.day.total, color: .green))
+        }
+        return result
     }
 
     var body: some View {
@@ -159,15 +171,21 @@ struct CompletionChartWidgetView: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            MultiRingDonutView(rings: rings, lineWidth: 7)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if rings.isEmpty {
+                Text("No periods selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                MultiRingDonutView(rings: rings, lineWidth: 7)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            HStack(spacing: 6) {
-                ForEach(rings) { ring in
-                    HStack(spacing: 2) {
-                        Circle().fill(ring.color).frame(width: 4, height: 4)
-                        Text("\(Int(ring.rate * 100))")
-                            .font(.system(size: 9).weight(.semibold))
+                HStack(spacing: 6) {
+                    ForEach(rings) { ring in
+                        HStack(spacing: 2) {
+                            Circle().fill(ring.color).frame(width: 4, height: 4)
+                            Text("\(Int(ring.rate * 100))")
+                                .font(.system(size: 9).weight(.semibold))
+                        }
                     }
                 }
             }
@@ -176,19 +194,26 @@ struct CompletionChartWidgetView: View {
 
     private var mediumView: some View {
         HStack(spacing: 12) {
-            MultiRingDonutView(rings: rings, lineWidth: 9)
-                .frame(width: 110, height: 110)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Completion Rate")
-                    .font(.caption.weight(.semibold))
+            if rings.isEmpty {
+                Text("No periods selected")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+            } else {
+                MultiRingDonutView(rings: rings, lineWidth: 9)
+                    .frame(width: 110, height: 110)
 
-                ForEach(rings) { ring in
-                    ringLegendRow(ring: ring)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Completion Rate")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    ForEach(rings) { ring in
+                        ringLegendRow(ring: ring)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -205,12 +230,19 @@ struct CompletionChartWidgetView: View {
                 Spacer()
             }
 
-            MultiRingDonutView(rings: rings, lineWidth: 14)
-                .frame(height: 170)
+            if rings.isEmpty {
+                Text("No periods selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxHeight: .infinity)
+            } else {
+                MultiRingDonutView(rings: rings, lineWidth: 14)
+                    .frame(height: 170)
 
-            VStack(spacing: 8) {
-                ForEach(rings) { ring in
-                    ringDetailRow(ring: ring)
+                VStack(spacing: 8) {
+                    ForEach(rings) { ring in
+                        ringDetailRow(ring: ring)
+                    }
                 }
             }
 

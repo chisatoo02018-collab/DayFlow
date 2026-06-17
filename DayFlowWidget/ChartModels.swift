@@ -41,6 +41,10 @@ struct CompletionChartEntry: TimelineEntry {
     let week: PeriodCompletion
     let month: PeriodCompletion
     let year: PeriodCompletion
+    let showDay: Bool
+    let showWeek: Bool
+    let showMonth: Bool
+    let showYear: Bool
 
     static var placeholder: CompletionChartEntry {
         CompletionChartEntry(
@@ -48,7 +52,8 @@ struct CompletionChartEntry: TimelineEntry {
             day: PeriodCompletion(completed: 5, total: 8),
             week: PeriodCompletion(completed: 25, total: 40),
             month: PeriodCompletion(completed: 80, total: 120),
-            year: PeriodCompletion(completed: 500, total: 800)
+            year: PeriodCompletion(completed: 500, total: 800),
+            showDay: true, showWeek: true, showMonth: true, showYear: true
         )
     }
 }
@@ -56,6 +61,9 @@ struct CompletionChartEntry: TimelineEntry {
 struct TrendChartEntry: TimelineEntry {
     let date: Date
     let dailyStats: [DailyStats]
+    let showEvents: Bool
+    let showCompletions: Bool
+    let showCompletionRate: Bool
 
     static var placeholder: TrendChartEntry {
         let cal = Calendar.current
@@ -65,6 +73,7 @@ struct TrendChartEntry: TimelineEntry {
             return DailyStats(id: d, date: d, eventCount: Int.random(in: 1...6),
                               completedCount: Int.random(in: 2...5), totalReminderCount: 8)
         }
-        return TrendChartEntry(date: Date(), dailyStats: stats)
+        return TrendChartEntry(date: Date(), dailyStats: stats,
+                               showEvents: true, showCompletions: true, showCompletionRate: true)
     }
 }
