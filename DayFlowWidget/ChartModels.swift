@@ -21,20 +21,35 @@ struct DailyStats: Identifiable {
     }
 }
 
-struct CompletionChartEntry: TimelineEntry {
-    let date: Date
-    let completedCount: Int
-    let remainingCount: Int
-    let overdueCount: Int
+struct PeriodCompletion {
+    let completed: Int
+    let total: Int
 
-    var total: Int { completedCount + remainingCount }
-    var completionRate: Double {
+    var rate: Double {
         guard total > 0 else { return 0 }
-        return Double(completedCount) / Double(total)
+        return Double(completed) / Double(total)
     }
 
+    static var placeholder: PeriodCompletion {
+        PeriodCompletion(completed: 0, total: 0)
+    }
+}
+
+struct CompletionChartEntry: TimelineEntry {
+    let date: Date
+    let day: PeriodCompletion
+    let week: PeriodCompletion
+    let month: PeriodCompletion
+    let year: PeriodCompletion
+
     static var placeholder: CompletionChartEntry {
-        CompletionChartEntry(date: Date(), completedCount: 7, remainingCount: 3, overdueCount: 1)
+        CompletionChartEntry(
+            date: Date(),
+            day: PeriodCompletion(completed: 5, total: 8),
+            week: PeriodCompletion(completed: 25, total: 40),
+            month: PeriodCompletion(completed: 80, total: 120),
+            year: PeriodCompletion(completed: 500, total: 800)
+        )
     }
 }
 

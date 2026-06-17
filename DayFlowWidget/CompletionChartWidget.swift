@@ -1,7 +1,6 @@
 import SwiftUI
 import WidgetKit
 import EventKit
-import Charts
 
 struct CompletionChartProvider: TimelineProvider {
     private let store = EKEventStore()
@@ -22,47 +21,47 @@ struct CompletionChartProvider: TimelineProvider {
 
     private func fetchEntry() -> CompletionChartEntry {
         let cal = Calendar.current
-        let startOfDay = cal.startOfDay(for: Date())
-        guard let endOfDay = cal.date(byAdding: .day, value: 1, to: startOfDay) else {
-            return .placeholder
-        }
+        let now = Date()
+        let startOfDay = cal.startOfDay(for: now)
 
-        var completedCount = 0
-        var remainingCount = 0
-        var overdueCount = 0
+        guard let endOfDay = cal.date(byAdding: .day, value: 1, to: startOfDay),
+              let startOfWeek = cal.dateInterval(of: .weekOfYear, for: now)?.start,
+              let startOfMonth = cal.dateInterval(of: .month, for: now)?.start,
+              let startOfYear = cal.dateInterval(of: .year, for: now)?.start
+        else { return .placeholder }
 
+        let day = fetchCompletion(from: startOfDay, to: endOfDay)
+        let week = fetchCompletion(from: startOfWeek, to: endOfDay)
+        let month = fetchCompletion(from: startOfMonth, to: endOfDay)
+        let year = fetchCompletion(from: startOfYear, to: endOfDay)
+
+        return CompletionChartEntry(date: now, day: day, week: week, month: month, year: year)
+    }
+
+    private func fetchCompletion(from start: Date, to end: Date) -> PeriodCompletion {
         let semaphore = DispatchSemaphore(value: 0)
+        var completed = 0
+        var incomplete = 0
 
         let completedPredicate = store.predicateForCompletedReminders(
-            withCompletionDateStarting: startOfDay, ending: endOfDay, calendars: nil
+            withCompletionDateStarting: start, ending: end, calendars: nil
         )
         store.fetchReminders(matching: completedPredicate) { fetched in
-            completedCount = fetched?.count ?? 0
+            completed = fetched?.count ?? 0
             semaphore.signal()
         }
         semaphore.wait()
 
         let incompletePredicate = store.predicateForIncompleteReminders(
-            withDueDateStarting: nil, ending: endOfDay, calendars: nil
+            withDueDateStarting: start, ending: end, calendars: nil
         )
         store.fetchReminders(matching: incompletePredicate) { fetched in
-            if let fetched {
-                remainingCount = fetched.count
-                overdueCount = fetched.filter {
-                    guard let due = $0.dueDateComponents?.date else { return false }
-                    return due < Date()
-                }.count
-            }
+            incomplete = fetched?.count ?? 0
             semaphore.signal()
         }
         semaphore.wait()
 
-        return CompletionChartEntry(
-            date: Date(),
-            completedCount: completedCount,
-            remainingCount: remainingCount,
-            overdueCount: overdueCount
-        )
+        return PeriodCompletion(completed: completed, total: completed + incomplete)
     }
 }
 
@@ -75,106 +74,179 @@ struct CompletionChartWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Completion Rate")
-        .description("Visualize your reminder completion rate with a donut chart.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .description("Multi-ring donut showing completion rates by year, month, week, and day.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
+
+// MARK: - Multi-ring donut view
+
+struct RingData: Identifiable {
+    let id: String
+    let label: String
+    let rate: Double
+    let completed: Int
+    let total: Int
+    let color: Color
+}
+
+struct MultiRingDonutView: View {
+    let rings: [RingData]
+    let lineWidth: CGFloat
+
+    var body: some View {
+        GeometryReader { geo in
+            let size = min(geo.size.width, geo.size.height)
+            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            let gap = lineWidth + 3
+
+            ZStack {
+                ForEach(Array(rings.enumerated()), id: \.element.id) { index, ring in
+                    let radius = (size / 2) - CGFloat(index) * gap - lineWidth / 2
+
+                    if radius > 0 {
+                        Circle()
+                            .stroke(ring.color.opacity(0.15), lineWidth: lineWidth)
+                            .frame(width: radius * 2, height: radius * 2)
+                            .position(center)
+
+                        Circle()
+                            .trim(from: 0, to: ring.rate)
+                            .stroke(ring.color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                            .frame(width: radius * 2, height: radius * 2)
+                            .rotationEffect(.degrees(-90))
+                            .position(center)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Widget views
 
 struct CompletionChartWidgetView: View {
     @Environment(\.widgetFamily) var family
     let entry: CompletionChartEntry
 
+    private var rings: [RingData] {
+        [
+            RingData(id: "year", label: "Year", rate: entry.year.rate,
+                     completed: entry.year.completed, total: entry.year.total, color: .purple),
+            RingData(id: "month", label: "Month", rate: entry.month.rate,
+                     completed: entry.month.completed, total: entry.month.total, color: .blue),
+            RingData(id: "week", label: "Week", rate: entry.week.rate,
+                     completed: entry.week.completed, total: entry.week.total, color: .orange),
+            RingData(id: "day", label: "Day", rate: entry.day.rate,
+                     completed: entry.day.completed, total: entry.day.total, color: .green),
+        ]
+    }
+
     var body: some View {
         switch family {
         case .systemSmall:
             smallView
+        case .systemLarge:
+            largeView
         default:
             mediumView
         }
     }
 
     private var smallView: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Text("Completion")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            donutChart
-                .frame(height: 90)
+            MultiRingDonutView(rings: rings, lineWidth: 7)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Text("\(Int(entry.completionRate * 100))%")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(.green)
+            HStack(spacing: 6) {
+                ForEach(rings) { ring in
+                    HStack(spacing: 2) {
+                        Circle().fill(ring.color).frame(width: 4, height: 4)
+                        Text("\(Int(ring.rate * 100))")
+                            .font(.system(size: 9).weight(.semibold))
+                    }
+                }
+            }
         }
     }
 
     private var mediumView: some View {
-        HStack(spacing: 16) {
-            VStack(spacing: 4) {
-                Text("Today's Progress")
+        HStack(spacing: 12) {
+            MultiRingDonutView(rings: rings, lineWidth: 9)
+                .frame(width: 110, height: 110)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Completion Rate")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
-                donutChart
-                    .frame(width: 100, height: 100)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                legendItem(color: .green, label: "Completed", value: entry.completedCount)
-                legendItem(color: .blue.opacity(0.4), label: "Remaining", value: entry.remainingCount)
-                if entry.overdueCount > 0 {
-                    legendItem(color: .red, label: "Overdue", value: entry.overdueCount)
+                ForEach(rings) { ring in
+                    ringLegendRow(ring: ring)
                 }
-
-                Spacer()
-
-                Text("\(Int(entry.completionRate * 100))% done")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.green)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var donutChart: some View {
-        Chart {
-            if entry.total == 0 {
-                SectorMark(angle: .value("Empty", 1), innerRadius: .ratio(0.6))
-                    .foregroundStyle(.gray.opacity(0.2))
-            } else {
-                SectorMark(
-                    angle: .value("Completed", entry.completedCount),
-                    innerRadius: .ratio(0.6)
-                )
-                .foregroundStyle(.green)
-
-                if entry.overdueCount > 0 {
-                    SectorMark(
-                        angle: .value("Overdue", entry.overdueCount),
-                        innerRadius: .ratio(0.6)
-                    )
-                    .foregroundStyle(.red)
+    private var largeView: some View {
+        VStack(spacing: 12) {
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("Completion Rate")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(Date(), format: .dateTime.month(.wide).day().year())
+                        .font(.headline.weight(.bold))
                 }
+                Spacer()
+            }
 
-                let nonOverdueRemaining = max(0, entry.remainingCount - entry.overdueCount)
-                if nonOverdueRemaining > 0 {
-                    SectorMark(
-                        angle: .value("Remaining", nonOverdueRemaining),
-                        innerRadius: .ratio(0.6)
-                    )
-                    .foregroundStyle(.blue.opacity(0.3))
+            MultiRingDonutView(rings: rings, lineWidth: 14)
+                .frame(height: 170)
+
+            VStack(spacing: 8) {
+                ForEach(rings) { ring in
+                    ringDetailRow(ring: ring)
                 }
             }
+
+            Spacer(minLength: 0)
         }
-        .chartLegend(.hidden)
     }
 
-    private func legendItem(color: Color, label: String, value: Int) -> some View {
+    private func ringLegendRow(ring: RingData) -> some View {
         HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 8, height: 8)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            RoundedRectangle(cornerRadius: 2)
+                .fill(ring.color)
+                .frame(width: 10, height: 10)
+            Text(ring.label)
+                .font(.caption)
             Spacer()
-            Text("\(value)").font(.caption.weight(.semibold))
+            Text("\(Int(ring.rate * 100))%")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(ring.color)
+        }
+    }
+
+    private func ringDetailRow(ring: RingData) -> some View {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(ring.color)
+                .frame(width: 12, height: 12)
+            Text(ring.label)
+                .font(.subheadline)
+            Spacer()
+            Text("\(ring.completed)/\(ring.total)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("\(Int(ring.rate * 100))%")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(ring.color)
+                .frame(width: 44, alignment: .trailing)
         }
     }
 }
