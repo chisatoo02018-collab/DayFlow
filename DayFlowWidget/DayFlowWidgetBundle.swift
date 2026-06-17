@@ -5,5 +5,7 @@ import WidgetKit
 struct DayFlowWidgetBundle: WidgetBundle {
     var body: some Widget {
         DashboardWidget()
+        CompletionChartWidget()
+        TrendChartWidget()
     }
 }
