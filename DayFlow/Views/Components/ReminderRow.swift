@@ -3,15 +3,27 @@ import SwiftUI
 struct ReminderRow: View {
     let item: ReminderItem
     var onToggle: (() -> Void)?
+    @State private var animating = false
 
     var body: some View {
         HStack(spacing: 12) {
-            Button(action: { onToggle?() }) {
+            Button(action: {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
+                    animating = true
+                }
+                onToggle?()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    animating = false
+                }
+            }) {
                 Image(systemName: item.isCompleted ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
                     .foregroundStyle(item.isCompleted ? .green : item.listColor)
+                    .scaleEffect(animating ? 1.3 : 1.0)
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
+            .sensoryFeedback(.success, trigger: animating)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title)
@@ -32,6 +44,7 @@ struct ReminderRow: View {
                 }
                 .foregroundStyle(item.isOverdue ? .red : .secondary)
             }
+            .opacity(item.isCompleted ? 0.6 : 1.0)
 
             Spacer()
 
@@ -46,5 +59,6 @@ struct ReminderRow: View {
             }
         }
         .padding(.vertical, 4)
+        .animation(.easeInOut(duration: 0.25), value: item.isCompleted)
     }
 }

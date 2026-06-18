@@ -1,11 +1,18 @@
 import EventKit
 import SwiftUI
 
+struct ReminderAction {
+    let item: ReminderItem
+    let wasCompleted: Bool
+    let timestamp: Date
+}
+
 @Observable
 final class ReminderService {
     private let store = EKEventStore()
     var authorizationStatus: EKAuthorizationStatus = .notDetermined
     var reminders: [ReminderItem] = []
+    var lastAction: ReminderAction?
 
     init() {
         authorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
@@ -58,8 +65,35 @@ final class ReminderService {
         }
         guard let target = all.first(where: { $0.calendarItemIdentifier == item.id }) else { return }
 
+        let wasCompleted = target.isCompleted
         target.isCompleted = !target.isCompleted
         try? store.save(target, commit: true)
+
+        await MainActor.run {
+            lastAction = ReminderAction(item: item, wasCompleted: wasCompleted, timestamp: Date())
+        }
         await fetchReminders()
+    }
+
+    func undoLastAction() async {
+        guard let action = lastAction else { return }
+
+        let predicate = store.predicateForReminders(in: nil)
+        let all = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { result in
+                continuation.resume(returning: result ?? [])
+            }
+        }
+        guard let target = all.first(where: { $0.calendarItemIdentifier == action.item.id }) else { return }
+
+        target.isCompleted = action.wasCompleted
+        try? store.save(target, commit: true)
+
+        await MainActor.run { lastAction = nil }
+        await fetchReminders()
+    }
+
+    func dismissAction() {
+        lastAction = nil
     }
 }

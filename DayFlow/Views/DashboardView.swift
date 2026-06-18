@@ -3,25 +3,71 @@ import SwiftUI
 struct DashboardView: View {
     @Environment(CalendarService.self) private var calendarService
     @Environment(ReminderService.self) private var reminderService
+    @State private var showToast = false
+    @State private var toastWorkItem: DispatchWorkItem?
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    dateHeader
-                    statsBar
-                    CalendarSection(events: calendarService.events)
-                    ReminderSection(reminders: reminderService.reminders) { item in
-                        Task { await reminderService.toggleCompletion(item) }
+            ZStack(alignment: .bottom) {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        dateHeader
+                        statsBar
+                        CalendarSection(events: calendarService.events)
+                        ReminderSection(reminders: reminderService.reminders) { item in
+                            Task {
+                                await reminderService.toggleCompletion(item)
+                                showUndoToast()
+                            }
+                        }
                     }
+                    .padding()
+                    .padding(.bottom, showToast ? 60 : 0)
                 }
-                .padding()
+                .background(Color(.systemGroupedBackground))
+                .navigationTitle("DayFlow")
+                .refreshable { await refresh() }
+                .task { await requestAccessAndLoad() }
+
+                if showToast, let action = reminderService.lastAction {
+                    UndoToastView(
+                        message: action.wasCompleted
+                            ? "\"\(action.item.title)\" marked incomplete"
+                            : "\"\(action.item.title)\" completed",
+                        icon: action.wasCompleted ? "arrow.uturn.backward.circle" : "checkmark.circle.fill",
+                        iconColor: action.wasCompleted ? .orange : .green,
+                        onUndo: {
+                            Task {
+                                await reminderService.undoLastAction()
+                                dismissToast()
+                            }
+                        },
+                        onDismiss: { dismissToast() }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("DayFlow")
-            .refreshable { await refresh() }
-            .task { await requestAccessAndLoad() }
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showToast)
         }
+    }
+
+    private func showUndoToast() {
+        toastWorkItem?.cancel()
+        withAnimation { showToast = true }
+        let work = DispatchWorkItem {
+            dismissToast()
+        }
+        toastWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+    }
+
+    private func dismissToast() {
+        toastWorkItem?.cancel()
+        toastWorkItem = nil
+        withAnimation { showToast = false }
+        reminderService.dismissAction()
     }
 
     private var dateHeader: some View {
@@ -68,6 +114,46 @@ struct DashboardView: View {
     private func refresh() async {
         await calendarService.fetchTodayEvents()
         await reminderService.fetchReminders()
+    }
+}
+
+// MARK: - Toast
+
+struct UndoToastView: View {
+    let message: String
+    let icon: String
+    let iconColor: Color
+    var onUndo: () -> Void
+    var onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(iconColor)
+
+            Text(message)
+                .font(.subheadline)
+                .lineLimit(1)
+
+            Spacer()
+
+            Button(action: onUndo) {
+                Text("Undo")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.blue)
+            }
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
     }
 }
 
