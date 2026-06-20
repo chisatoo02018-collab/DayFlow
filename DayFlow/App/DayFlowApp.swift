@@ -7,7 +7,7 @@ struct DayFlowApp: App {
 
     var body: some Scene {
         WindowGroup {
-            DashboardView()
+            MainTabView()
                 .environment(calendarService)
                 .environment(reminderService)
         }

@@ -96,4 +96,28 @@ final class ReminderService {
     func dismissAction() {
         lastAction = nil
     }
+
+    func fetchCompletedCount(from start: Date, to end: Date) async -> Int {
+        let predicate = store.predicateForCompletedReminders(
+            withCompletionDateStarting: start, ending: end, calendars: nil
+        )
+        let result = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { fetched in
+                continuation.resume(returning: fetched?.count ?? 0)
+            }
+        }
+        return result
+    }
+
+    func fetchIncompleteCount(from start: Date, to end: Date) async -> Int {
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: start, ending: end, calendars: nil
+        )
+        let result = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { fetched in
+                continuation.resume(returning: fetched?.count ?? 0)
+            }
+        }
+        return result
+    }
 }
