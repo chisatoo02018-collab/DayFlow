@@ -5,6 +5,7 @@ struct DashboardView: View {
     @Environment(ReminderService.self) private var reminderService
     @State private var showToast = false
     @State private var toastWorkItem: DispatchWorkItem?
+    @State private var showNewItem = false
 
     var body: some View {
         NavigationStack {
@@ -26,6 +27,16 @@ struct DashboardView: View {
                 }
                 .background(Color(.systemGroupedBackground))
                 .navigationTitle("DayFlow")
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showNewItem = true } label: {
+                            Image(systemName: "plus")
+                        }
+                    }
+                }
+                .sheet(isPresented: $showNewItem) {
+                    NewItemSheet { await refresh() }
+                }
                 .refreshable { await refresh() }
                 .task { await requestAccessAndLoad() }
 

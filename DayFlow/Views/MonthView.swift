@@ -14,12 +14,14 @@ struct MonthStats {
     var totalEvents: Int = 0
     var totalCompleted: Int = 0
     var totalIncomplete: Int = 0
+    var daysWithData: Int = 0
     var busiestDay: Date?
     var busiestDayCount: Int = 0
 
-    var completionRate: Double {
+    var hasReminderData: Bool { (totalCompleted + totalIncomplete) > 0 }
+    var completionRate: Double? {
         let total = totalCompleted + totalIncomplete
-        guard total > 0 else { return 0 }
+        guard total > 0 else { return nil }
         return Double(totalCompleted) / Double(total)
     }
 }
@@ -31,6 +33,7 @@ struct MonthView: View {
     @State private var dayData: [MonthDayData] = []
     @State private var stats = MonthStats()
     @State private var loading = false
+    @State private var showNewItem = false
 
     private let calendar = Calendar.current
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
@@ -52,6 +55,16 @@ struct MonthView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Month")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showNewItem = true } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $showNewItem) {
+                NewItemSheet { await loadMonth() }
+            }
             .task(id: displayedMonth) { await loadMonth() }
         }
     }
@@ -166,21 +179,27 @@ struct MonthView: View {
                     Text("Completion Rate")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        Text("\(Int(stats.completionRate * 100))%")
-                            .font(.title.weight(.bold))
-                            .foregroundStyle(stats.completionRate >= 0.8 ? .green : stats.completionRate >= 0.5 ? .orange : .red)
+                    if let rate = stats.completionRate {
+                        HStack(spacing: 8) {
+                            Text("\(Int(rate * 100))%")
+                                .font(.title.weight(.bold))
+                                .foregroundStyle(rate >= 0.8 ? .green : rate >= 0.5 ? .orange : .red)
 
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(.gray.opacity(0.15))
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(stats.completionRate >= 0.8 ? .green : stats.completionRate >= 0.5 ? .orange : .red)
-                                    .frame(width: geo.size.width * stats.completionRate)
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(.gray.opacity(0.15))
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(rate >= 0.8 ? .green : rate >= 0.5 ? .orange : .red)
+                                        .frame(width: geo.size.width * rate)
+                                }
                             }
+                            .frame(height: 8)
                         }
-                        .frame(height: 8)
+                    } else {
+                        Text("No data")
+                            .font(.subheadline)
+                            .foregroundStyle(.gray.opacity(0.5))
                     }
                 }
 
@@ -232,6 +251,7 @@ struct MonthView: View {
         var totalEvents = 0
         var totalCompleted = 0
         var totalIncomplete = 0
+        var daysWithData = 0
         var busiestDay: Date?
         var busiestCount = 0
 
@@ -243,6 +263,13 @@ struct MonthView: View {
             let completed = await reminderService.fetchCompletedCount(from: dayStart, to: dayEnd)
             let incomplete = await reminderService.fetchIncompleteCount(from: dayStart, to: dayEnd)
 
+            let reminderTotal = completed + incomplete
+            if reminderTotal > 0 {
+                totalCompleted += completed
+                totalIncomplete += incomplete
+                daysWithData += 1
+            }
+
             let dayTotal = events.count + completed + incomplete
             if dayTotal > busiestCount {
                 busiestCount = dayTotal
@@ -250,8 +277,6 @@ struct MonthView: View {
             }
 
             totalEvents += events.count
-            totalCompleted += completed
-            totalIncomplete += incomplete
 
             data.append(MonthDayData(
                 id: dayStart, date: dayStart,
@@ -267,6 +292,7 @@ struct MonthView: View {
                 totalEvents: totalEvents,
                 totalCompleted: totalCompleted,
                 totalIncomplete: totalIncomplete,
+                daysWithData: daysWithData,
                 busiestDay: busiestDay,
                 busiestDayCount: busiestCount
             )

@@ -7,8 +7,9 @@ struct MonthSummary: Identifiable {
     let completedCount: Int
     let incompleteCount: Int
     var total: Int { completedCount + incompleteCount }
-    var completionRate: Double {
-        guard total > 0 else { return 0 }
+    var hasReminderData: Bool { total > 0 }
+    var completionRate: Double? {
+        guard total > 0 else { return nil }
         return Double(completedCount) / Double(total)
     }
 }
@@ -17,14 +18,15 @@ struct YearStats {
     var totalEvents: Int = 0
     var totalCompleted: Int = 0
     var totalIncomplete: Int = 0
+    var monthsWithData: Int = 0
     var busiestMonth: Date?
     var busiestMonthCount: Int = 0
     var bestMonth: Date?
     var bestRate: Double = 0
 
-    var completionRate: Double {
+    var completionRate: Double? {
         let total = totalCompleted + totalIncomplete
-        guard total > 0 else { return 0 }
+        guard total > 0 else { return nil }
         return Double(totalCompleted) / Double(total)
     }
 }
@@ -36,6 +38,7 @@ struct YearView: View {
     @State private var monthSummaries: [MonthSummary] = []
     @State private var stats = YearStats()
     @State private var loading = false
+    @State private var showNewItem = false
 
     private let calendar = Calendar.current
     private let monthColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
@@ -53,6 +56,16 @@ struct YearView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Year")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showNewItem = true } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $showNewItem) {
+                NewItemSheet { await loadYear() }
+            }
             .task(id: displayedYear) { await loadYear() }
         }
     }
@@ -89,10 +102,12 @@ struct YearView: View {
             ZStack {
                 Circle()
                     .stroke(.gray.opacity(0.15), lineWidth: 3)
-                Circle()
-                    .trim(from: 0, to: month.completionRate)
-                    .stroke(rateColor(month.completionRate), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
+                if let rate = month.completionRate {
+                    Circle()
+                        .trim(from: 0, to: rate)
+                        .stroke(rateColor(rate), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
             }
             .frame(width: 24, height: 24)
 
@@ -101,8 +116,13 @@ struct YearView: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(isCurrentMonth ? .blue : .primary)
                 HStack(spacing: 4) {
-                    Text("\(Int(month.completionRate * 100))%")
-                        .foregroundStyle(rateColor(month.completionRate))
+                    if let rate = month.completionRate {
+                        Text("\(Int(rate * 100))%")
+                            .foregroundStyle(rateColor(rate))
+                    } else {
+                        Text("—")
+                            .foregroundStyle(.gray.opacity(0.4))
+                    }
                     Text("·")
                     Text("\(month.eventCount)ev")
                 }
@@ -141,9 +161,15 @@ struct YearView: View {
                     Text("Completion Rate")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("\(Int(stats.completionRate * 100))%")
-                        .font(.title.weight(.bold))
-                        .foregroundStyle(rateColor(stats.completionRate))
+                    if let rate = stats.completionRate {
+                        Text("\(Int(rate * 100))%")
+                            .font(.title.weight(.bold))
+                            .foregroundStyle(rateColor(rate))
+                    } else {
+                        Text("—")
+                            .font(.title.weight(.bold))
+                            .foregroundStyle(.gray.opacity(0.4))
+                    }
                 }
 
                 Spacer()
@@ -179,7 +205,7 @@ struct YearView: View {
                         let height = CGFloat(month.eventCount + month.completedCount) / CGFloat(maxVal) * 100
 
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(rateColor(month.completionRate))
+                            .fill(month.completionRate.map { rateColor($0) } ?? .gray.opacity(0.3))
                             .frame(height: max(4, height))
 
                         Text(month.date, format: .dateTime.month(.narrow))
@@ -195,6 +221,7 @@ struct YearView: View {
                 legendDot(color: .green, label: "≥80%")
                 legendDot(color: .orange, label: "50-79%")
                 legendDot(color: .red, label: "<50%")
+                legendDot(color: .gray.opacity(0.3), label: "No data")
             }
             .font(.caption2)
         }
@@ -241,6 +268,7 @@ struct YearView: View {
         var totalEvents = 0
         var totalCompleted = 0
         var totalIncomplete = 0
+        var monthsWithData = 0
         var busiestMonth: Date?
         var busiestCount = 0
         var bestMonth: Date?
@@ -263,16 +291,19 @@ struct YearView: View {
             summaries.append(summary)
 
             totalEvents += events.count
-            totalCompleted += completed
-            totalIncomplete += incomplete
+            if summary.hasReminderData {
+                totalCompleted += completed
+                totalIncomplete += incomplete
+                monthsWithData += 1
+            }
 
             let monthTotal = events.count + completed + incomplete
             if monthTotal > busiestCount {
                 busiestCount = monthTotal
                 busiestMonth = monthStart
             }
-            if summary.completionRate > bestRate && summary.total > 0 {
-                bestRate = summary.completionRate
+            if let rate = summary.completionRate, rate > bestRate {
+                bestRate = rate
                 bestMonth = monthStart
             }
         }
@@ -283,6 +314,7 @@ struct YearView: View {
                 totalEvents: totalEvents,
                 totalCompleted: totalCompleted,
                 totalIncomplete: totalIncomplete,
+                monthsWithData: monthsWithData,
                 busiestMonth: busiestMonth,
                 busiestMonthCount: busiestCount,
                 bestMonth: bestMonth,
