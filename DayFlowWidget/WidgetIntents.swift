@@ -1,102 +1,46 @@
 import AppIntents
 import WidgetKit
 
-// MARK: - Dashboard Widget Intent
+// MARK: - Today Widget
 
-enum DashboardDisplayMode: String, AppEnum {
-    case both = "both"
-    case calendarOnly = "calendar"
-    case remindersOnly = "reminders"
+enum DisplayMode: String, AppEnum {
+    case both, calendarOnly, remindersOnly
 
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Display Mode")
-    static var caseDisplayRepresentations: [DashboardDisplayMode: DisplayRepresentation] = [
+    static var caseDisplayRepresentations: [DisplayMode: DisplayRepresentation] = [
         .both: "Calendar & Reminders",
         .calendarOnly: "Calendar Only",
         .remindersOnly: "Reminders Only",
     ]
 }
 
-enum DashboardMaxItems: Int, AppEnum {
-    case three = 3
-    case five = 5
-    case eight = 8
+struct TodayWidgetIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Today Settings"
+    static var description = IntentDescription("Choose what to display.")
 
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Max Items")
-    static var caseDisplayRepresentations: [DashboardMaxItems: DisplayRepresentation] = [
-        .three: "3 items",
-        .five: "5 items",
-        .eight: "8 items",
-    ]
+    @Parameter(title: "Display", default: .both)
+    var displayMode: DisplayMode
 }
 
-struct DashboardWidgetIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "Dashboard Settings"
-    static var description = IntentDescription("Choose what to display on the dashboard.")
+// MARK: - Stats Widget
 
-    @Parameter(title: "Display Mode", default: .both)
-    var displayMode: DashboardDisplayMode
-
-    @Parameter(title: "Max Items", default: .five)
-    var maxItems: DashboardMaxItems
-}
-
-// MARK: - Completion Chart Widget Intent
-
-struct CompletionChartIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "Completion Chart Settings"
-    static var description = IntentDescription("Choose which time periods to display.")
-
-    @Parameter(title: "Year", default: true)
-    var showYear: Bool
-
-    @Parameter(title: "Month", default: true)
-    var showMonth: Bool
-
-    @Parameter(title: "Week", default: true)
-    var showWeek: Bool
-
-    @Parameter(title: "Day", default: true)
-    var showDay: Bool
-}
-
-// MARK: - Trend Chart Widget Intent
-
-enum TrendPeriod: Int, AppEnum {
+enum TrendDays: Int, AppEnum {
     case sevenDays = 7
     case fourteenDays = 14
     case thirtyDays = 30
 
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Period")
-    static var caseDisplayRepresentations: [TrendPeriod: DisplayRepresentation] = [
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Trend Period")
+    static var caseDisplayRepresentations: [TrendDays: DisplayRepresentation] = [
         .sevenDays: "7 Days",
         .fourteenDays: "14 Days",
         .thirtyDays: "30 Days",
     ]
 }
 
-enum TrendDisplayContent: String, AppEnum {
-    case both = "both"
-    case eventsOnly = "events"
-    case completionsOnly = "completions"
+struct StatsWidgetIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Stats Settings"
+    static var description = IntentDescription("Configure the stats display.")
 
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Content")
-    static var caseDisplayRepresentations: [TrendDisplayContent: DisplayRepresentation] = [
-        .both: "Events & Completions",
-        .eventsOnly: "Events Only",
-        .completionsOnly: "Completions Only",
-    ]
-}
-
-struct TrendChartIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "Trend Chart Settings"
-    static var description = IntentDescription("Configure the trend chart display.")
-
-    @Parameter(title: "Period", default: .sevenDays)
-    var period: TrendPeriod
-
-    @Parameter(title: "Content", default: .both)
-    var displayContent: TrendDisplayContent
-
-    @Parameter(title: "Show Completion Rate Bar", default: true)
-    var showCompletionRate: Bool
+    @Parameter(title: "Trend Period", default: .sevenDays)
+    var trendDays: TrendDays
 }
