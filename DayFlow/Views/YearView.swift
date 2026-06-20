@@ -38,7 +38,7 @@ struct YearView: View {
     @State private var loading = false
 
     private let calendar = Calendar.current
-    private let monthColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+    private let monthColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     var body: some View {
         NavigationStack {
@@ -74,7 +74,7 @@ struct YearView: View {
     }
 
     private var yearGrid: some View {
-        LazyVGrid(columns: monthColumns, spacing: 12) {
+        LazyVGrid(columns: monthColumns, spacing: 6) {
             ForEach(monthSummaries) { month in
                 monthCard(month)
             }
@@ -85,40 +85,41 @@ struct YearView: View {
     private func monthCard(_ month: MonthSummary) -> some View {
         let isCurrentMonth = calendar.isDate(month.date, equalTo: Date(), toGranularity: .month)
 
-        return VStack(spacing: 6) {
-            Text(month.date, format: .dateTime.month(.abbreviated))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(isCurrentMonth ? .blue : .primary)
-
+        return HStack(spacing: 6) {
             ZStack {
                 Circle()
-                    .stroke(.gray.opacity(0.15), lineWidth: 4)
+                    .stroke(.gray.opacity(0.15), lineWidth: 3)
                 Circle()
                     .trim(from: 0, to: month.completionRate)
-                    .stroke(rateColor(month.completionRate), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .stroke(rateColor(month.completionRate), style: StrokeStyle(lineWidth: 3, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-
-                Text("\(Int(month.completionRate * 100))%")
-                    .font(.system(size: 10).weight(.bold))
-                    .foregroundStyle(rateColor(month.completionRate))
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 24, height: 24)
 
-            HStack(spacing: 8) {
-                Label("\(month.eventCount)", systemImage: "calendar")
-                Label("\(month.completedCount)", systemImage: "checkmark")
+            VStack(alignment: .leading, spacing: 1) {
+                Text(month.date, format: .dateTime.month(.abbreviated))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(isCurrentMonth ? .blue : .primary)
+                HStack(spacing: 4) {
+                    Text("\(Int(month.completionRate * 100))%")
+                        .foregroundStyle(rateColor(month.completionRate))
+                    Text("·")
+                    Text("\(month.eventCount)ev")
+                }
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
             }
-            .font(.system(size: 9))
-            .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
-        .background(.background, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.04), radius: 4, y: 1)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
         .overlay {
             if isCurrentMonth {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 8)
                     .stroke(.blue.opacity(0.3), lineWidth: 1.5)
             }
         }
