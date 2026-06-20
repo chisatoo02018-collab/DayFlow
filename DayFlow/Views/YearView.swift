@@ -56,6 +56,7 @@ struct YearView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Year")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showNewItem = true } label: {

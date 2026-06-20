@@ -55,6 +55,7 @@ struct MonthView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Month")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showNewItem = true } label: {
@@ -154,13 +155,11 @@ struct MonthView: View {
             }
             .frame(height: 6)
 
-            if day.total > 0 {
-                Text("\(day.completedCount)/\(day.total)")
-                    .font(.system(size: 8))
-                    .foregroundStyle(.secondary)
-            }
+            Text(day.total > 0 ? "\(day.completedCount)/\(day.total)" : " ")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
         }
-        .frame(height: 52)
+        .frame(height: 52, alignment: .top)
     }
 
     private var monthStatsSection: some View {

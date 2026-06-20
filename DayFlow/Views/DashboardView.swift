@@ -27,6 +27,7 @@ struct DashboardView: View {
                 }
                 .background(Color(.systemGroupedBackground))
                 .navigationTitle("DayFlow")
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { showNewItem = true } label: {
