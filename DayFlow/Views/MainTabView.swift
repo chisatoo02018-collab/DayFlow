@@ -16,6 +16,10 @@ struct MainTabView: View {
             YearView()
                 .tabItem { Label("Year", systemImage: "chart.bar.xaxis") }
                 .tag(2)
+
+            SettingsView()
+                .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(3)
         }
     }
 }

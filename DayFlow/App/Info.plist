@@ -41,5 +41,22 @@
 	<string>DayFlow needs access to your calendars to display events on the dashboard and widgets.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>DayFlow needs access to your reminders to display them on the dashboard and widgets.</string>
+	<!--
+	Google Sign-In configuration.
+	Replace GIDClientID and the URL scheme below with the values from the OAuth
+	client created in Google Cloud Console for this app's bundle identifier
+	(com.chisatoo.dayflow). The URL scheme is the client ID's "REVERSED_CLIENT_ID".
+	-->
+	<key>GIDClientID</key>
+	<string>YOUR_CLIENT_ID.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.YOUR_CLIENT_ID</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

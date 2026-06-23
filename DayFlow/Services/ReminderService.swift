@@ -10,11 +10,13 @@ struct ReminderAction {
 @Observable
 final class ReminderService {
     private let store = EKEventStore()
+    private let googleService: GoogleTasksService?
     var authorizationStatus: EKAuthorizationStatus = .notDetermined
     var reminders: [ReminderItem] = []
     var lastAction: ReminderAction?
 
-    init() {
+    init(googleService: GoogleTasksService? = nil) {
+        self.googleService = googleService
         authorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
     }
 
@@ -43,8 +45,10 @@ final class ReminderService {
             }
         }
 
-        let mapped = ekReminders
-            .map { ReminderItem(from: $0) }
+        let appleReminders = ekReminders.map { ReminderItem(from: $0) }
+        let googleReminders = await googleService?.fetchReminders() ?? []
+
+        let mapped = (appleReminders + googleReminders)
             .sorted { lhs, rhs in
                 if lhs.isOverdue != rhs.isOverdue { return lhs.isOverdue }
                 guard let ld = lhs.dueDate, let rd = rhs.dueDate else {
@@ -57,20 +61,28 @@ final class ReminderService {
     }
 
     func toggleCompletion(_ item: ReminderItem) async {
-        let predicate = store.predicateForReminders(in: nil)
-        let all = await withCheckedContinuation { continuation in
-            store.fetchReminders(matching: predicate) { result in
-                continuation.resume(returning: result ?? [])
+        switch item.source {
+        case .apple:
+            let predicate = store.predicateForReminders(in: nil)
+            let all = await withCheckedContinuation { continuation in
+                store.fetchReminders(matching: predicate) { result in
+                    continuation.resume(returning: result ?? [])
+                }
             }
-        }
-        guard let target = all.first(where: { $0.calendarItemIdentifier == item.id }) else { return }
+            guard let target = all.first(where: { $0.calendarItemIdentifier == item.id }) else { return }
 
-        let wasCompleted = target.isCompleted
-        target.isCompleted = !target.isCompleted
-        try? store.save(target, commit: true)
+            let wasCompleted = target.isCompleted
+            target.isCompleted = !target.isCompleted
+            try? store.save(target, commit: true)
 
-        await MainActor.run {
-            lastAction = ReminderAction(item: item, wasCompleted: wasCompleted, timestamp: Date())
+            await MainActor.run {
+                lastAction = ReminderAction(item: item, wasCompleted: wasCompleted, timestamp: Date())
+            }
+        case .google:
+            await googleService?.setCompletion(item, completed: !item.isCompleted)
+            await MainActor.run {
+                lastAction = ReminderAction(item: item, wasCompleted: item.isCompleted, timestamp: Date())
+            }
         }
         await fetchReminders()
     }
@@ -78,16 +90,21 @@ final class ReminderService {
     func undoLastAction() async {
         guard let action = lastAction else { return }
 
-        let predicate = store.predicateForReminders(in: nil)
-        let all = await withCheckedContinuation { continuation in
-            store.fetchReminders(matching: predicate) { result in
-                continuation.resume(returning: result ?? [])
+        switch action.item.source {
+        case .apple:
+            let predicate = store.predicateForReminders(in: nil)
+            let all = await withCheckedContinuation { continuation in
+                store.fetchReminders(matching: predicate) { result in
+                    continuation.resume(returning: result ?? [])
+                }
             }
-        }
-        guard let target = all.first(where: { $0.calendarItemIdentifier == action.item.id }) else { return }
+            guard let target = all.first(where: { $0.calendarItemIdentifier == action.item.id }) else { return }
 
-        target.isCompleted = action.wasCompleted
-        try? store.save(target, commit: true)
+            target.isCompleted = action.wasCompleted
+            try? store.save(target, commit: true)
+        case .google:
+            await googleService?.setCompletion(action.item, completed: action.wasCompleted)
+        }
 
         await MainActor.run { lastAction = nil }
         await fetchReminders()

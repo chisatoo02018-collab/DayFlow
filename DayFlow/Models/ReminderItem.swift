@@ -2,6 +2,11 @@ import Foundation
 import EventKit
 import SwiftUI
 
+enum ReminderSource {
+    case apple
+    case google
+}
+
 struct ReminderItem: Identifiable {
     let id: String
     let title: String
@@ -12,6 +17,9 @@ struct ReminderItem: Identifiable {
     let listColor: Color
     let listTitle: String
     let notes: String?
+    let source: ReminderSource
+    /// Only set for Google Tasks items; needed to address the task list when patching completion state.
+    let googleTaskListId: String?
 
     init(from ekReminder: EKReminder) {
         self.id = ekReminder.calendarItemIdentifier
@@ -23,6 +31,23 @@ struct ReminderItem: Identifiable {
         self.listColor = Color(cgColor: ekReminder.calendar.cgColor)
         self.listTitle = ekReminder.calendar.title
         self.notes = ekReminder.notes
+        self.source = .apple
+        self.googleTaskListId = nil
+    }
+
+    init(googleTaskId: String, title: String, dueDate: Date?, isCompleted: Bool, notes: String?, listId: String, listTitle: String) {
+        self.id = googleTaskId
+        self.title = title
+        self.dueDate = dueDate
+        self.isCompleted = isCompleted
+        // The Tasks API only ever exposes a date (midnight UTC), never a time of day.
+        self.isOverdue = OverdueRule.isOverdue(due: dueDate, hasTimeComponent: false, isCompleted: isCompleted)
+        self.priority = 0
+        self.listColor = Color(red: 0.26, green: 0.52, blue: 0.96) // Google blue
+        self.listTitle = listTitle
+        self.notes = notes
+        self.source = .google
+        self.googleTaskListId = listId
     }
 
     var dueDateText: String? {

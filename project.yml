@@ -14,6 +14,11 @@ settings:
     DEVELOPMENT_TEAM: WY55TM2MU8
     CODE_SIGN_STYLE: Automatic
 
+packages:
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 7.1.0
+
 targets:
   DayFlow:
     type: application
@@ -32,6 +37,10 @@ targets:
     dependencies:
       - target: DayFlowWidgetExtension
         embed: true
+      - package: GoogleSignIn
+        product: GoogleSignIn
+      - package: GoogleSignIn
+        product: GoogleSignInSwift
 
   DayFlowWidgetExtension:
     type: app-extension

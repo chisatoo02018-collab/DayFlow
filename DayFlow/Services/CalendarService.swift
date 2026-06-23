@@ -4,10 +4,12 @@ import SwiftUI
 @Observable
 final class CalendarService {
     private let store = EKEventStore()
+    private let googleService: GoogleCalendarService?
     var authorizationStatus: EKAuthorizationStatus = .notDetermined
     var events: [CalendarEvent] = []
 
-    init() {
+    init(googleService: GoogleCalendarService? = nil) {
+        self.googleService = googleService
         authorizationStatus = EKEventStore.authorizationStatus(for: .event)
     }
 
@@ -28,20 +30,14 @@ final class CalendarService {
         let startOfDay = calendar.startOfDay(for: Date())
         guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else { return }
 
-        let predicate = store.predicateForEvents(withStart: startOfDay, end: endOfDay, calendars: nil)
-        let ekEvents = store.events(matching: predicate)
-
-        let mapped = ekEvents
-            .map { CalendarEvent(from: $0) }
-            .sorted { $0.startDate < $1.startDate }
-
+        let mapped = await fetchEvents(from: startOfDay, to: endOfDay)
         await MainActor.run { events = mapped }
     }
 
     func fetchEvents(from start: Date, to end: Date) async -> [CalendarEvent] {
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
-        return store.events(matching: predicate)
-            .map { CalendarEvent(from: $0) }
-            .sorted { $0.startDate < $1.startDate }
+        let appleEvents = store.events(matching: predicate).map { CalendarEvent(from: $0) }
+        let googleEvents = await googleService?.fetchEvents(from: start, to: end) ?? []
+        return (appleEvents + googleEvents).sorted { $0.startDate < $1.startDate }
     }
 }
