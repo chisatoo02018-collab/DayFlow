@@ -31,10 +31,7 @@ struct WidgetDataProvider {
         store.fetchReminders(matching: predicate) { fetched in
             if let fetched {
                 total = fetched.count
-                overdue = fetched.filter {
-                    guard let due = $0.dueDateComponents?.date else { return false }
-                    return due < Date() && !$0.isCompleted
-                }.count
+                overdue = fetched.filter(\.isOverdue).count
                 items = fetched
                     .sorted { ($0.dueDateComponents?.date ?? .distantFuture) < ($1.dueDateComponents?.date ?? .distantFuture) }
                     .prefix(max)

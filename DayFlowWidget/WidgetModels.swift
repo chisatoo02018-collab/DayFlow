@@ -41,10 +41,7 @@ struct WidgetReminder: Identifiable {
         self.id = ekReminder.calendarItemIdentifier
         self.title = ekReminder.title ?? "No Title"
         self.dueDate = ekReminder.dueDateComponents?.date
-        self.isOverdue = {
-            guard let due = ekReminder.dueDateComponents?.date else { return false }
-            return due < Date() && !ekReminder.isCompleted
-        }()
+        self.isOverdue = ekReminder.isOverdue
         self.color = Color(cgColor: ekReminder.calendar.cgColor)
     }
 }

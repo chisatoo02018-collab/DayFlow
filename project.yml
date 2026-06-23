@@ -21,6 +21,7 @@ targets:
     sources:
       - path: DayFlow
       - path: Assets.xcassets
+      - path: Shared
     settings:
       base:
         INFOPLIST_FILE: DayFlow/App/Info.plist
@@ -37,6 +38,7 @@ targets:
     platform: iOS
     sources:
       - path: DayFlowWidget
+      - path: Shared
     settings:
       base:
         INFOPLIST_FILE: DayFlowWidget/Info.plist
