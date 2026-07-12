@@ -120,4 +120,67 @@ final class ReminderService {
         }
         return result
     }
+
+    func fetchRemindersForDate(from start: Date, to end: Date) async -> [ReminderItem] {
+        let incompletePred = store.predicateForIncompleteReminders(
+            withDueDateStarting: start, ending: end, calendars: nil
+        )
+        let completedPred = store.predicateForCompletedReminders(
+            withCompletionDateStarting: start, ending: end, calendars: nil
+        )
+
+        async let incompleteResult = withCheckedContinuation { continuation in
+            store.fetchReminders(matching: incompletePred) { result in
+                continuation.resume(returning: result ?? [])
+            }
+        }
+        async let completedResult = withCheckedContinuation { continuation in
+            store.fetchReminders(matching: completedPred) { result in
+                continuation.resume(returning: result ?? [])
+            }
+        }
+
+        let all = await (incompleteResult + completedResult)
+        return all.map { ReminderItem(from: $0) }
+            .sorted { lhs, rhs in
+                if lhs.isCompleted != rhs.isCompleted { return !lhs.isCompleted }
+                if lhs.isOverdue != rhs.isOverdue { return lhs.isOverdue }
+                guard let ld = lhs.dueDate, let rd = rhs.dueDate else { return lhs.dueDate != nil }
+                return ld < rd
+            }
+    }
+
+    func rescheduleOverdueToToday() async -> Int {
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: nil, ending: Date(), calendars: nil
+        )
+        let overdue = await withCheckedContinuation { continuation in
+            store.fetchReminders(matching: predicate) { result in
+                continuation.resume(returning: result ?? [])
+            }
+        }
+
+        let now = Date()
+        let todayEnd = Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: now) ?? now
+        var count = 0
+
+        for reminder in overdue {
+            guard let due = reminder.dueDateComponents?.date, due < now else { continue }
+            reminder.dueDateComponents = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute], from: todayEnd
+            )
+            try? store.save(reminder, commit: false)
+            count += 1
+        }
+
+        if count > 0 {
+            try? store.commit()
+        }
+        await fetchReminders()
+        return count
+    }
+
+    func reminderLists() -> [EKCalendar] {
+        store.calendars(for: .reminder)
+    }
 }

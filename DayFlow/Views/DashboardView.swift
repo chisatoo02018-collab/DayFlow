@@ -6,6 +6,7 @@ struct DashboardView: View {
     @State private var showToast = false
     @State private var toastWorkItem: DispatchWorkItem?
     @State private var showNewItem = false
+    @State private var showRescheduleConfirm = false
 
     var body: some View {
         NavigationStack {
@@ -40,6 +41,21 @@ struct DashboardView: View {
                 }
                 .refreshable { await refresh() }
                 .task { await requestAccessAndLoad() }
+                .alert("期限切れのタスクをすべて本日中に変更しますか？", isPresented: $showRescheduleConfirm) {
+                    Button("変更する", role: .destructive) {
+                        Task {
+                            let count = await reminderService.rescheduleOverdueToToday()
+                            await calendarService.fetchTodayEvents()
+                            if count > 0 {
+                                toastWorkItem?.cancel()
+                                await MainActor.run {
+                                    reminderService.lastAction = nil
+                                }
+                            }
+                        }
+                    }
+                    Button("キャンセル", role: .cancel) {}
+                }
 
                 if showToast, let action = reminderService.lastAction {
                     UndoToastView(
@@ -95,6 +111,10 @@ struct DashboardView: View {
         }
     }
 
+    private var overdueCount: Int {
+        reminderService.reminders.filter(\.isOverdue).count
+    }
+
     private var statsBar: some View {
         HStack(spacing: 12) {
             StatCard(
@@ -111,9 +131,10 @@ struct DashboardView: View {
             )
             StatCard(
                 title: "Overdue",
-                value: "\(reminderService.reminders.filter(\.isOverdue).count)",
+                value: "\(overdueCount)",
                 icon: "exclamationmark.triangle",
-                color: .red
+                color: .red,
+                action: overdueCount > 0 ? { showRescheduleConfirm = true } : nil
             )
         }
     }
@@ -174,6 +195,7 @@ struct StatCard: View {
     let value: String
     let icon: String
     let color: Color
+    var action: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 6) {
@@ -186,10 +208,19 @@ struct StatCard: View {
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if action != nil {
+                Text("Reschedule")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.red, in: Capsule())
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+        .onTapGesture { action?() }
     }
 }

@@ -108,16 +108,31 @@ struct EventEditView: UIViewControllerRepresentable {
     }
 }
 
+// MARK: - Recurrence
+
+enum RecurrenceFrequency: String, CaseIterable {
+    case none = "Never"
+    case daily = "Daily"
+    case weekly = "Weekly"
+    case biweekly = "Every 2 Weeks"
+    case monthly = "Monthly"
+    case yearly = "Yearly"
+}
+
 // MARK: - New Reminder Form
 
 struct NewReminderView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var notes = ""
+    @State private var url = ""
     @State private var hasDueDate = false
     @State private var dueDate = Date()
     @State private var priority: Int = 0
+    @State private var recurrence: RecurrenceFrequency = .none
+    @State private var selectedListIndex: Int = 0
     @State private var saving = false
+    @State private var lists: [EKCalendar] = []
 
     var onSaved: () -> Void
 
@@ -130,12 +145,20 @@ struct NewReminderView: View {
                     TextField("Title", text: $title)
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3...6)
+                    TextField("URL", text: $url)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
                 }
 
                 Section {
                     Toggle("Due Date", isOn: $hasDueDate)
                     if hasDueDate {
                         DatePicker("Date", selection: $dueDate)
+                        Picker("Repeat", selection: $recurrence) {
+                            ForEach(RecurrenceFrequency.allCases, id: \.self) { freq in
+                                Text(freq.rawValue).tag(freq)
+                            }
+                        }
                     }
                 }
 
@@ -145,6 +168,22 @@ struct NewReminderView: View {
                         Text("Low").tag(9)
                         Text("Medium").tag(5)
                         Text("High").tag(1)
+                    }
+                }
+
+                if !lists.isEmpty {
+                    Section {
+                        Picker("List", selection: $selectedListIndex) {
+                            ForEach(lists.indices, id: \.self) { i in
+                                HStack {
+                                    Circle()
+                                        .fill(Color(cgColor: lists[i].cgColor))
+                                        .frame(width: 10, height: 10)
+                                    Text(lists[i].title)
+                                }
+                                .tag(i)
+                            }
+                        }
                     }
                 }
             }
@@ -160,6 +199,15 @@ struct NewReminderView: View {
                         .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || saving)
                 }
             }
+            .onAppear { loadLists() }
+        }
+    }
+
+    private func loadLists() {
+        lists = store.calendars(for: .reminder)
+        if let defaultCal = store.defaultCalendarForNewReminders(),
+           let idx = lists.firstIndex(where: { $0.calendarIdentifier == defaultCal.calendarIdentifier }) {
+            selectedListIndex = idx
         }
     }
 
@@ -170,13 +218,24 @@ struct NewReminderView: View {
         if !notes.trimmingCharacters(in: .whitespaces).isEmpty {
             reminder.notes = notes
         }
+        let trimmedURL = url.trimmingCharacters(in: .whitespaces)
+        if !trimmedURL.isEmpty, let parsed = URL(string: trimmedURL) {
+            reminder.url = parsed
+        }
         if hasDueDate {
             reminder.dueDateComponents = Calendar.current.dateComponents(
                 [.year, .month, .day, .hour, .minute], from: dueDate
             )
+            if recurrence != .none {
+                reminder.recurrenceRules = [makeRecurrenceRule()]
+            }
         }
         reminder.priority = priority
-        reminder.calendar = store.defaultCalendarForNewReminders()
+        if lists.indices.contains(selectedListIndex) {
+            reminder.calendar = lists[selectedListIndex]
+        } else {
+            reminder.calendar = store.defaultCalendarForNewReminders()
+        }
 
         do {
             try store.save(reminder, commit: true)
@@ -184,6 +243,23 @@ struct NewReminderView: View {
             onSaved()
         } catch {
             saving = false
+        }
+    }
+
+    private func makeRecurrenceRule() -> EKRecurrenceRule {
+        switch recurrence {
+        case .none:
+            return EKRecurrenceRule(recurrenceWith: .daily, interval: 1, end: nil)
+        case .daily:
+            return EKRecurrenceRule(recurrenceWith: .daily, interval: 1, end: nil)
+        case .weekly:
+            return EKRecurrenceRule(recurrenceWith: .weekly, interval: 1, end: nil)
+        case .biweekly:
+            return EKRecurrenceRule(recurrenceWith: .weekly, interval: 2, end: nil)
+        case .monthly:
+            return EKRecurrenceRule(recurrenceWith: .monthly, interval: 1, end: nil)
+        case .yearly:
+            return EKRecurrenceRule(recurrenceWith: .yearly, interval: 1, end: nil)
         }
     }
 }

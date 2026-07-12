@@ -34,6 +34,7 @@ struct MonthView: View {
     @State private var stats = MonthStats()
     @State private var loading = false
     @State private var showNewItem = false
+    @State private var selectedDay: MonthDayData?
 
     private let calendar = Calendar.current
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
@@ -65,6 +66,9 @@ struct MonthView: View {
             }
             .sheet(isPresented: $showNewItem) {
                 NewItemSheet { await loadMonth() }
+            }
+            .sheet(item: $selectedDay) { day in
+                DayDetailSheet(date: day.date)
             }
             .task(id: displayedMonth) { await loadMonth() }
         }
@@ -131,7 +135,8 @@ struct MonthView: View {
     }
 
     private func dayCell(_ day: MonthDayData) -> some View {
-        VStack(spacing: 2) {
+        let hasContent = day.eventCount > 0 || day.total > 0
+        return VStack(spacing: 2) {
             Text("\(calendar.component(.day, from: day.date))")
                 .font(.caption.weight(day.isToday ? .bold : .regular))
                 .foregroundStyle(day.isToday ? .white : .primary)
@@ -160,6 +165,10 @@ struct MonthView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(height: 52, alignment: .top)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if hasContent { selectedDay = day }
+        }
     }
 
     private var monthStatsSection: some View {
