@@ -1,4 +1,4 @@
-import EventKit
+@preconcurrency import EventKit
 import SwiftUI
 
 struct ReminderAction {
@@ -129,18 +129,18 @@ final class ReminderService {
             withCompletionDateStarting: start, ending: end, calendars: nil
         )
 
-        async let incompleteResult = withCheckedContinuation { continuation in
+        let incompleteResult = await withCheckedContinuation { continuation in
             store.fetchReminders(matching: incompletePred) { result in
                 continuation.resume(returning: result ?? [])
             }
         }
-        async let completedResult = withCheckedContinuation { continuation in
+        let completedResult = await withCheckedContinuation { continuation in
             store.fetchReminders(matching: completedPred) { result in
                 continuation.resume(returning: result ?? [])
             }
         }
 
-        let all = await (incompleteResult + completedResult)
+        let all = incompleteResult + completedResult
         return all.map { ReminderItem(from: $0) }
             .sorted { lhs, rhs in
                 if lhs.isCompleted != rhs.isCompleted { return !lhs.isCompleted }

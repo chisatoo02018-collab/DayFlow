@@ -1,5 +1,12 @@
 import Foundation
 
+enum TimeBlockSource: String, Codable {
+    case manual
+    case calendar
+    case healthKit
+    case imported
+}
+
 /// A contiguous run of the day assigned to one category, in minutes-from-midnight.
 /// `start ..< end`, both in `0...1440`, never wrapping past midnight — an activity
 /// that crosses midnight is stored as two blocks (evening + next morning).
@@ -8,15 +15,34 @@ struct TimeBlock: Identifiable, Codable, Equatable {
     var categoryID: String
     var start: Int
     var end: Int
+    var source: TimeBlockSource
+    var isUserModified: Bool
 
-    init(id: UUID = UUID(), categoryID: String, start: Int, end: Int) {
+    init(id: UUID = UUID(), categoryID: String, start: Int, end: Int,
+         source: TimeBlockSource = .manual, isUserModified: Bool = false) {
         self.id = id
         self.categoryID = categoryID
         self.start = start
         self.end = end
+        self.source = source
+        self.isUserModified = isUserModified
     }
 
     var durationMinutes: Int { max(0, end - start) }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, categoryID, start, end, source, isUserModified
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        categoryID = try values.decode(String.self, forKey: .categoryID)
+        start = try values.decode(Int.self, forKey: .start)
+        end = try values.decode(Int.self, forKey: .end)
+        source = try values.decodeIfPresent(TimeBlockSource.self, forKey: .source) ?? .manual
+        isUserModified = try values.decodeIfPresent(Bool.self, forKey: .isUserModified) ?? false
+    }
 }
 
 /// How many minutes each editable slot spans. The wheel edits at this resolution and
@@ -39,14 +65,16 @@ enum TimeGrid {
     }
 
     /// Collapse a slot array back into contiguous same-category blocks.
-    static func blocks(from slots: [String?]) -> [TimeBlock] {
+    static func blocks(from slots: [String?], source: TimeBlockSource = .manual,
+                       isUserModified: Bool = false) -> [TimeBlock] {
         var result: [TimeBlock] = []
         var i = 0
         while i < slots.count {
             guard let cat = slots[i] else { i += 1; continue }
             var j = i + 1
             while j < slots.count, slots[j] == cat { j += 1 }
-            result.append(TimeBlock(categoryID: cat, start: i * slotMinutes, end: j * slotMinutes))
+            result.append(TimeBlock(categoryID: cat, start: i * slotMinutes, end: j * slotMinutes,
+                                    source: source, isUserModified: isUserModified))
             i = j
         }
         return result

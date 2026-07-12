@@ -90,7 +90,8 @@ struct ReviewHomeView: View {
                 slots[index] = "work"
             }
         }
-        store.save(DaySchedule(date: today, kind: .plan, blocks: TimeGrid.blocks(from: slots)))
+        store.save(DaySchedule(date: today, kind: .plan,
+                               blocks: TimeGrid.blocks(from: slots, source: .calendar)))
         isImporting = false
         selectedTab = .record
     }

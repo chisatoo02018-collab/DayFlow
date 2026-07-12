@@ -9,6 +9,7 @@ import Observation
 /// Everything here is optional: the 時間割 editor works fully without a vault or token;
 /// this only runs when the user has configured sync in Settings.
 @Observable
+@MainActor
 final class VaultWriter {
     var vaultURL: URL?
     let github = GitHubSync()

@@ -22,6 +22,7 @@ struct ScheduleSyncOp: Codable, Identifiable {
 /// canonical vault (and the Mac, which pulls) gets them without opening Obsidian on the
 /// phone. Local files remain the app's own source of truth; this is the propagation path.
 @Observable
+@MainActor
 final class GitHubSync {
     var config: GitHubConfig { didSet { persistConfig() } }
     /// User-facing on/off. Mirroring only happens when this is on AND a token exists.
@@ -73,7 +74,7 @@ final class GitHubSync {
         flushTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard !Task.isCancelled else { return }
-            await MainActor.run { self?.flush() }
+            self?.flush()
         }
     }
 
@@ -97,12 +98,10 @@ final class GitHubSync {
                     break   // stop on first failure; keep it and the rest queued for retry
                 }
             }
-            await MainActor.run {
-                self.outbox = remaining
-                self.persistOutbox()
-                self.lastError = failure
-                self.isFlushing = false
-            }
+            self.outbox = remaining
+            self.persistOutbox()
+            self.lastError = failure
+            self.isFlushing = false
         }
     }
 

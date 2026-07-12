@@ -14,6 +14,7 @@ struct TimeScheduleView: View {
     @State private var slots = [String?](repeating: nil, count: slotsPerDay)
     @State private var showAddCategory = false
     @State private var showSettings = false
+    @State private var selectedRange: SelectedSlotRange?
 
     init(date: Date = Date(), kind: ScheduleKind = .plan) {
         _date = State(initialValue: Calendar.current.startOfDay(for: date))
@@ -35,6 +36,20 @@ struct TimeScheduleView: View {
                         onCopyPlan: copyPlanToActual
                     )
                     wheel
+                    if let selectedRange {
+                        TimeRangeEditor(
+                            selection: selectedRange,
+                            category: store.category(id: selectedRange.categoryID),
+                            onAdjustStart: adjustSelectedStart,
+                            onAdjustEnd: adjustSelectedEnd,
+                            onDelete: deleteSelectedRange
+                        )
+                    } else {
+                        Text("塗った区間をタップすると、開始・終了を細かく調整できます")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     categoryStrip
                     if comparisonMinutes > 0 {
                         ComparisonCard(difference: assignedMinutes - comparisonMinutes, kind: kind)
@@ -70,11 +85,24 @@ struct TimeScheduleView: View {
 
     private func reload() {
         slots = TimeGrid.slots(from: store.schedule(date: date, kind: kind).blocks)
+        selectedRange = nil
     }
 
     private func commit() {
         var sched = store.schedule(date: date, kind: kind)
-        sched.blocks = TimeGrid.blocks(from: slots)
+        let previous = sched.blocks
+        sched.blocks = TimeGrid.blocks(from: slots).map { block in
+            guard let original = previous
+                .filter({ $0.categoryID == block.categoryID })
+                .max(by: { overlap($0, block) < overlap($1, block) }),
+                  overlap(original, block) > 0 else { return block }
+            var updated = block
+            updated.source = original.source
+            updated.isUserModified = original.isUserModified
+                || original.start != block.start
+                || original.end != block.end
+            return updated
+        }
         store.save(sched)
         // Mirror the whole day (both kinds) to Obsidian if configured. No-op otherwise.
         if vault.isConfigured {
@@ -85,9 +113,40 @@ struct TimeScheduleView: View {
         }
     }
 
+    private func overlap(_ lhs: TimeBlock, _ rhs: TimeBlock) -> Int {
+        max(0, min(lhs.end, rhs.end) - max(lhs.start, rhs.start))
+    }
+
     private func copyPlanToActual() {
         store.copySchedule(date: date, from: .plan, to: .actual)
         reload()
+        commit()
+    }
+
+    private func adjustSelectedStart(_ delta: Int) {
+        guard let range = selectedRange else { return }
+        resizeSelected(start: range.start + delta, end: range.end)
+    }
+
+    private func adjustSelectedEnd(_ delta: Int) {
+        guard let range = selectedRange else { return }
+        resizeSelected(start: range.start, end: range.end + delta)
+    }
+
+    private func resizeSelected(start: Int, end: Int) {
+        guard let old = selectedRange else { return }
+        let newStart = min(max(0, start), old.end - 1)
+        let newEnd = max(min(slotsPerDay, end), newStart + 1)
+        for index in old.start..<old.end where slots[index] == old.categoryID { slots[index] = nil }
+        for index in newStart..<newEnd { slots[index] = old.categoryID }
+        selectedRange = SelectedSlotRange(start: newStart, end: newEnd, categoryID: old.categoryID)
+        commit()
+    }
+
+    private func deleteSelectedRange() {
+        guard let range = selectedRange else { return }
+        for index in range.start..<range.end where slots[index] == range.categoryID { slots[index] = nil }
+        selectedRange = nil
         commit()
     }
 
@@ -129,8 +188,8 @@ struct TimeScheduleView: View {
 
     private var wheel: some View {
         ZStack {
-            TimeWheelView(slots: $slots, activeCategoryID: activeCategoryID,
-                          colorFor: colorFor, onCommit: commit)
+            TimeWheelView(slots: $slots, selection: $selectedRange,
+                          activeCategoryID: activeCategoryID, colorFor: colorFor, onCommit: commit)
             centerReadout
         }
         .frame(maxWidth: 360)
@@ -217,16 +276,22 @@ struct TimeScheduleView: View {
                     .padding(.vertical, 12)
             } else {
                 ForEach(breakdownRows, id: \.id) { row in
-                    HStack(spacing: 10) {
-                        Circle().fill(row.color).frame(width: 12, height: 12)
-                        Text(row.name).font(.subheadline)
-                        Spacer()
-                        Text(hoursText(row.minutes))
-                            .font(.subheadline.weight(.semibold)).monospacedDigit()
-                        Text("\(row.percent)%")
-                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                            .frame(width: 38, alignment: .trailing)
+                    Button { selectFirstRange(categoryID: row.id) } label: {
+                        HStack(spacing: 10) {
+                            Circle().fill(row.color).frame(width: 12, height: 12)
+                            Text(row.name).font(.subheadline)
+                            Spacer()
+                            Text(hoursText(row.minutes))
+                                .font(.subheadline.weight(.semibold)).monospacedDigit()
+                            Text("\(row.percent)%")
+                                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                .frame(width: 38, alignment: .trailing)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2).foregroundStyle(.tertiary)
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("最初の\(row.name)区間を選択して時刻を編集")
                 }
             }
         }
@@ -255,6 +320,83 @@ struct TimeScheduleView: View {
         if h == 0 { return "\(m)分" }
         if m == 0 { return "\(h)時間" }
         return "\(h)時間\(m)分"
+    }
+
+    private func selectFirstRange(categoryID: String) {
+        guard let start = slots.firstIndex(where: { $0 == categoryID }) else { return }
+        var end = start + 1
+        while end < slots.count, slots[end] == categoryID { end += 1 }
+        selectedRange = SelectedSlotRange(start: start, end: end, categoryID: categoryID)
+    }
+}
+
+private struct TimeRangeEditor: View {
+    let selection: SelectedSlotRange
+    let category: TimeCategory?
+    let onAdjustStart: (Int) -> Void
+    let onAdjustEnd: (Int) -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Label(category?.name ?? selection.categoryID, systemImage: category?.symbol ?? "clock.fill")
+                    .font(.headline)
+                    .foregroundStyle(category?.color ?? .gray)
+                Spacer()
+                Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
+                    .accessibilityLabel("この区間を削除")
+            }
+
+            HStack(spacing: 12) {
+                TimeBoundaryControl(
+                    title: "開始",
+                    value: selection.startMinutes.asClock,
+                    onDecrease: { onAdjustStart(-1) },
+                    onIncrease: { onAdjustStart(1) }
+                )
+                Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                TimeBoundaryControl(
+                    title: "終了",
+                    value: selection.endMinutes.asClock,
+                    onDecrease: { onAdjustEnd(-1) },
+                    onIncrease: { onAdjustEnd(1) }
+                )
+            }
+
+            Text("\(durationText(selection.durationMinutes)) · 5分単位")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background((category?.color ?? .gray).opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func durationText(_ minutes: Int) -> String {
+        if minutes < 60 { return "\(minutes)分" }
+        if minutes % 60 == 0 { return "\(minutes / 60)時間" }
+        return "\(minutes / 60)時間\(minutes % 60)分"
+    }
+}
+
+private struct TimeBoundaryControl: View {
+    let title: String
+    let value: String
+    let onDecrease: () -> Void
+    let onIncrease: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.title3.weight(.bold)).monospacedDigit()
+            HStack(spacing: 4) {
+                Button(action: onDecrease) { Image(systemName: "minus") }
+                Button(action: onIncrease) { Image(systemName: "plus") }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

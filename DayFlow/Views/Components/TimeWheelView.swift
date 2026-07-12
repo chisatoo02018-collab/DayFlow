@@ -1,5 +1,15 @@
 import SwiftUI
 
+struct SelectedSlotRange: Equatable {
+    var start: Int
+    var end: Int
+    var categoryID: String
+
+    var durationMinutes: Int { (end - start) * slotMinutes }
+    var startMinutes: Int { start * slotMinutes }
+    var endMinutes: Int { end * slotMinutes }
+}
+
 /// A 24-hour radial dial you paint with a finger. 00:00 sits at the top and the day
 /// runs clockwise (06:00 right, 12:00 bottom, 18:00 left). Dragging around the ring
 /// assigns the active category to the swept slots; a nil active category erases.
@@ -9,6 +19,7 @@ import SwiftUI
 /// overwrite. The parent converts slots to/from `TimeBlock`s.
 struct TimeWheelView: View {
     @Binding var slots: [String?]
+    @Binding var selection: SelectedSlotRange?
     /// nil id ("消しゴム") erases; otherwise the category being painted.
     let activeCategoryID: String?
     /// Resolves a slot's category id to a color for drawing.
@@ -18,17 +29,38 @@ struct TimeWheelView: View {
 
     private let thickness: CGFloat = 34
     @State private var lastSlot: Int?
+    @State private var dragOrigin: CGPoint?
+    @State private var isPainting = false
+    @State private var wheelRadius: CGFloat = 0
 
     var body: some View {
-        Canvas { ctx, size in
-            draw(in: &ctx, size: size)
+        ZStack {
+            Canvas { ctx, size in
+                draw(in: &ctx, size: size)
+            }
+            if let selection {
+                RangeHandles(
+                    selection: Binding(get: { selection }, set: { self.selection = $0 }),
+                    slots: $slots,
+                    color: colorFor(selection.categoryID),
+                    radiusInset: thickness / 2 + 6,
+                    onCommit: onCommit
+                )
+            }
         }
         .aspectRatio(1, contentMode: .fit)
         .contentShape(Rectangle())
         .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in paint(at: value.location) }
-                .onEnded { _ in lastSlot = nil; onCommit() }
+            SpatialTapGesture()
+                .onEnded { value in
+                    guard isOnRing(value.location), let slot = slotIndex(for: value.location) else { return }
+                    selectBlock(containing: slot)
+                }
+        )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 8)
+                .onChanged(handleDrag)
+                .onEnded(handleDragEnd)
         )
         .accessibilityLabel("24時間リング。ドラッグして時間帯にカテゴリを割り当てます。")
     }
@@ -45,6 +77,57 @@ struct TimeWheelView: View {
             slots[slot] = activeCategoryID
         }
         lastSlot = slot
+    }
+
+    private func handleDrag(_ value: DragGesture.Value) {
+        if dragOrigin == nil { dragOrigin = value.startLocation }
+        guard isOnRing(value.startLocation), isTangentialDrag(value) else { return }
+        let distance = hypot(value.location.x - value.startLocation.x, value.location.y - value.startLocation.y)
+        guard distance > 8 else { return }
+        if !isPainting {
+            isPainting = true
+            selection = nil
+            paint(at: value.startLocation)
+        }
+        paint(at: value.location)
+    }
+
+    private func handleDragEnd(_ value: DragGesture.Value) {
+        if isPainting {
+            onCommit()
+        }
+        lastSlot = nil
+        dragOrigin = nil
+        isPainting = false
+    }
+
+    private func isOnRing(_ point: CGPoint) -> Bool {
+        let distance = hypot(point.x - wheelCenter.x, point.y - wheelCenter.y)
+        return abs(distance - wheelRadius) <= thickness
+    }
+
+    private func isTangentialDrag(_ value: DragGesture.Value) -> Bool {
+        let startRadius = hypot(value.startLocation.x - wheelCenter.x, value.startLocation.y - wheelCenter.y)
+        let currentRadius = hypot(value.location.x - wheelCenter.x, value.location.y - wheelCenter.y)
+        let radialTravel = abs(currentRadius - startRadius)
+        let startAngle = atan2(value.startLocation.y - wheelCenter.y, value.startLocation.x - wheelCenter.x)
+        let currentAngle = atan2(value.location.y - wheelCenter.y, value.location.x - wheelCenter.x)
+        var angleDelta = abs(currentAngle - startAngle)
+        if angleDelta > .pi { angleDelta = 2 * .pi - angleDelta }
+        let arcTravel = angleDelta * max(1, wheelRadius)
+        return arcTravel > max(8, radialTravel * 1.2)
+    }
+
+    private func selectBlock(containing slot: Int) {
+        guard let categoryID = slots[slot] else {
+            selection = nil
+            return
+        }
+        var start = slot
+        var end = slot + 1
+        while start > 0, slots[start - 1] == categoryID { start -= 1 }
+        while end < slots.count, slots[end] == categoryID { end += 1 }
+        selection = SelectedSlotRange(start: start, end: end, categoryID: categoryID)
     }
 
     /// Slots swept between two indices along the shorter arc (inclusive of `to`), so a
@@ -94,6 +177,7 @@ struct TimeWheelView: View {
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
         DispatchQueue.main.async { if wheelCenter != center { wheelCenter = center } }
         let radius = side / 2 - thickness / 2 - 6
+        DispatchQueue.main.async { if wheelRadius != radius { wheelRadius = radius } }
 
         drawTrack(&ctx, center: center, radius: radius)
         drawSegments(&ctx, center: center, radius: radius)
@@ -149,5 +233,75 @@ struct TimeWheelView: View {
             )
             ctx.draw(resolved, at: p)
         }
+    }
+}
+
+private struct RangeHandles: View {
+    @Binding var selection: SelectedSlotRange
+    @Binding var slots: [String?]
+    let color: Color
+    let radiusInset: CGFloat
+    let onCommit: () -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let radius = side / 2 - radiusInset
+
+            handle(label: "開始", systemImage: "play.fill")
+                .position(point(slot: selection.start, center: center, radius: radius))
+                .gesture(handleGesture(isStart: true, center: center))
+
+            handle(label: "終了", systemImage: "stop.fill")
+                .position(point(slot: selection.end, center: center, radius: radius))
+                .gesture(handleGesture(isStart: false, center: center))
+        }
+        .allowsHitTesting(true)
+    }
+
+    private func handle(label: String, systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(color, in: Circle())
+            .overlay(Circle().stroke(.white, lineWidth: 3))
+            .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+            .accessibilityLabel("\(label)時刻")
+    }
+
+    private func handleGesture(isStart: Bool, center: CGPoint) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in update(isStart: isStart, location: value.location, center: center) }
+            .onEnded { _ in onCommit() }
+    }
+
+    private func update(isStart: Bool, location: CGPoint, center: CGPoint) {
+        var candidate = slot(at: location, center: center)
+        if !isStart, selection.end > slotsPerDay / 2, candidate < slotsPerDay / 4 {
+            candidate = slotsPerDay
+        }
+        let old = selection
+        let newStart = isStart ? min(candidate, old.end - 1) : old.start
+        let newEnd = isStart ? old.end : max(candidate, old.start + 1)
+        guard newStart != old.start || newEnd != old.end else { return }
+
+        for index in old.start..<old.end where slots[index] == old.categoryID { slots[index] = nil }
+        for index in newStart..<newEnd { slots[index] = old.categoryID }
+        selection = SelectedSlotRange(start: newStart, end: newEnd, categoryID: old.categoryID)
+    }
+
+    private func slot(at point: CGPoint, center: CGPoint) -> Int {
+        let dx = point.x - center.x
+        let dy = point.y - center.y
+        var angle = atan2(dx, -dy)
+        if angle < 0 { angle += 2 * .pi }
+        return min(slotsPerDay - 1, max(0, Int((angle / (2 * .pi) * Double(slotsPerDay)).rounded())))
+    }
+
+    private func point(slot: Int, center: CGPoint, radius: CGFloat) -> CGPoint {
+        let angle = Double(slot % slotsPerDay) / Double(slotsPerDay) * 2 * Double.pi - Double.pi / 2
+        return CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
     }
 }
