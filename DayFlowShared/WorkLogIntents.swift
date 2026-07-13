@@ -39,5 +39,11 @@ struct DayFlowShortcuts: AppShortcutsProvider {
             shortTitle: "退社を記録",
             systemImageName: "figure.walk.departure"
         )
+        AppShortcut(
+            intent: OpenTodayRecordIntent(),
+            phrases: ["\(.applicationName)で今日の記録を開く"],
+            shortTitle: "今日の記録",
+            systemImageName: "clock.arrow.circlepath"
+        )
     }
 }

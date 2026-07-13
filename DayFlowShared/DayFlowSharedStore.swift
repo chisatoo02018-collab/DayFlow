@@ -20,6 +20,11 @@ enum DayFlowSharedStore {
     static let appGroupID = "group.com.chisatoo.dayflow"
     private static let workLogsFile = "work_logs.json"
     private static let schedulesFile = "schedules.json"
+    private static let pendingRouteKey = "pendingRoute"
+
+    enum Route: String {
+        case todayActual
+    }
 
     static func workRecord(on date: Date = Date()) -> WorkdayRecord? {
         loadWorkLogs()[dayKey(date)]
@@ -49,6 +54,41 @@ enum DayFlowSharedStore {
 
     static func suggestedAction(on date: Date = Date()) -> WorkLogAction {
         workRecord(on: date)?.isWorking == true ? .leave : .arrive
+    }
+
+    static func requestRoute(_ route: Route) {
+        UserDefaults(suiteName: appGroupID)?.set(route.rawValue, forKey: pendingRouteKey)
+    }
+
+    static func consumeRoute() -> Route? {
+        let defaults = UserDefaults(suiteName: appGroupID)
+        guard let raw = defaults?.string(forKey: pendingRouteKey) else { return nil }
+        defaults?.removeObject(forKey: pendingRouteKey)
+        return Route(rawValue: raw)
+    }
+
+    /// Save one edge of the planned sleep window without overwriting other planned activity.
+    static func recordPlannedSleepEdge(time: Date, isWakeTime: Bool, now: Date = Date()) {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.hour, .minute], from: time)
+        let hour = components.hour ?? 0
+        let minute = components.minute ?? 0
+        let minutes = hour * 60 + minute
+
+        let day: Date
+        let range: Range<Int>
+        if isWakeTime {
+            let candidate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) ?? now
+            let occurrence = candidate > now
+                ? candidate
+                : (calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate)
+            day = calendar.startOfDay(for: occurrence)
+            range = 0..<max(0, min(1440, minutes))
+        } else {
+            day = calendar.startOfDay(for: now)
+            range = max(0, min(1440, minutes))..<1440
+        }
+        mergePlanBlock(day: day, range: range, categoryID: "sleep")
     }
 
     private struct SharedSchedule: Codable {
@@ -93,6 +133,44 @@ enum DayFlowSharedStore {
         let work = SharedBlock(id: UUID(), categoryID: "work", tags: [], start: lower * 5,
                                end: upper * 5, source: "imported", isUserModified: false)
         for index in lower..<upper where slots[index] == nil { slots[index] = work }
+
+        var blocks: [SharedBlock] = []
+        var index = 0
+        while index < slots.count {
+            guard let slot = slots[index] else { index += 1; continue }
+            var end = index + 1
+            while end < slots.count,
+                  slots[end]?.categoryID == slot.categoryID,
+                  slots[end]?.tags == slot.tags,
+                  slots[end]?.source == slot.source,
+                  slots[end]?.isUserModified == slot.isUserModified { end += 1 }
+            blocks.append(SharedBlock(id: UUID(), categoryID: slot.categoryID, tags: slot.tags,
+                                      start: index * 5, end: end * 5, source: slot.source,
+                                      isUserModified: slot.isUserModified))
+            index = end
+        }
+        schedule.blocks = blocks
+        schedules[key] = schedule
+        try? save(schedules, named: schedulesFile)
+    }
+
+    private static func mergePlanBlock(day: Date, range: Range<Int>, categoryID: String) {
+        guard !range.isEmpty else { return }
+        var schedules: [String: SharedSchedule] = load(named: schedulesFile) ?? [:]
+        let key = "\(dayKey(day))_plan"
+        var schedule = schedules[key] ?? SharedSchedule(date: Calendar.current.startOfDay(for: day), kind: "plan", blocks: [])
+        var slots = [SharedBlock?](repeating: nil, count: 288)
+        for block in schedule.blocks {
+            let lower = max(0, block.start / 5)
+            let upper = min(288, Int(ceil(Double(block.end) / 5.0)))
+            guard lower < upper else { continue }
+            for index in lower..<upper { slots[index] = block }
+        }
+        let lower = max(0, range.lowerBound / 5)
+        let upper = min(288, Int(ceil(Double(range.upperBound) / 5.0)))
+        let planned = SharedBlock(id: UUID(), categoryID: categoryID, tags: [], start: lower * 5,
+                                  end: upper * 5, source: "imported", isUserModified: false)
+        for index in lower..<upper where slots[index] == nil { slots[index] = planned }
 
         var blocks: [SharedBlock] = []
         var index = 0

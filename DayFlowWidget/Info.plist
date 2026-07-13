@@ -20,6 +20,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CFBundleDisplayName</key>
 	<string>DayFlow Widget</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>起床予定の時刻に、消音モードや集中モード中でも気づけるアラームを鳴らすために使用します。</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

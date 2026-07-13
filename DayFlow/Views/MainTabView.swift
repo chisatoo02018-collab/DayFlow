@@ -27,7 +27,21 @@ struct MainTabView: View {
                 .tag(AppTab.insights)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { scheduleStore.reloadFromSharedContainer() }
+            if phase == .active {
+                scheduleStore.reloadFromSharedContainer()
+                handlePendingRoute()
+            }
+        }
+        .task { handlePendingRoute() }
+    }
+
+    private func handlePendingRoute() {
+        guard let route = DayFlowSharedStore.consumeRoute() else { return }
+        switch route {
+        case .todayActual:
+            recorderDate = Date()
+            recorderKind = .actual
+            selectedTab = .record
         }
     }
 }
