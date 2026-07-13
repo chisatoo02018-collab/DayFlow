@@ -10,6 +10,7 @@ import Observation
 final class ScheduleStore {
     /// Presets first, then the user's custom categories (in creation order).
     private(set) var categories: [TimeCategory]
+    private(set) var templates: [ScheduleTemplate]
 
     /// All saved schedules, keyed by `DaySchedule.key(date:kind:)`.
     private var schedules: [String: DaySchedule]
@@ -17,16 +18,19 @@ final class ScheduleStore {
     private let dir: URL
     private let schedulesURL: URL
     private let categoriesURL: URL
+    private let templatesURL: URL
 
     init() {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         dir = base
         schedulesURL = base.appendingPathComponent("schedules.json")
         categoriesURL = base.appendingPathComponent("custom_categories.json")
+        templatesURL = base.appendingPathComponent("schedule_templates.json")
 
         let custom = Self.load([TimeCategory].self, from: categoriesURL) ?? []
         categories = TimeCategory.presets + custom.filter { $0.isCustom }
         schedules = Self.load([String: DaySchedule].self, from: schedulesURL) ?? [:]
+        templates = Self.load([ScheduleTemplate].self, from: templatesURL) ?? []
     }
 
     // MARK: - Categories
@@ -99,10 +103,25 @@ final class ScheduleStore {
             .sorted { $0.date < $1.date }
     }
 
+    @discardableResult
+    func saveTemplate(name: String, blocks: [TimeBlock]) -> ScheduleTemplate {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let template = ScheduleTemplate(name: trimmed.isEmpty ? "新しい予定" : trimmed, blocks: blocks)
+        templates.append(template)
+        persistTemplates()
+        return template
+    }
+
+    func deleteTemplate(id: UUID) {
+        templates.removeAll { $0.id == id }
+        persistTemplates()
+    }
+
     // MARK: - Persistence
 
     private func persistSchedules() { Self.save(schedules, to: schedulesURL) }
     private func persistCategories() { Self.save(customCategories, to: categoriesURL) }
+    private func persistTemplates() { Self.save(templates, to: templatesURL) }
 
     private static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
         guard let data = try? Data(contentsOf: url) else { return nil }

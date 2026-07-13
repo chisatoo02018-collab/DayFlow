@@ -38,6 +38,21 @@ struct TimeWheelView: View {
             Canvas { ctx, size in
                 draw(in: &ctx, size: size)
             }
+            RingHitShape()
+                .fill(.clear)
+                .contentShape(RingHitShape())
+                .gesture(
+                    SpatialTapGesture()
+                        .onEnded { value in
+                            guard let slot = slotIndex(for: value.location) else { return }
+                            selectBlock(containing: slot)
+                        }
+                )
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8)
+                        .onChanged(handleDrag)
+                        .onEnded(handleDragEnd)
+                )
             if let selection {
                 RangeHandles(
                     selection: Binding(get: { selection }, set: { self.selection = $0 }),
@@ -49,19 +64,6 @@ struct TimeWheelView: View {
             }
         }
         .aspectRatio(1, contentMode: .fit)
-        .contentShape(Rectangle())
-        .gesture(
-            SpatialTapGesture()
-                .onEnded { value in
-                    guard isOnRing(value.location), let slot = slotIndex(for: value.location) else { return }
-                    selectBlock(containing: slot)
-                }
-        )
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 8)
-                .onChanged(handleDrag)
-                .onEnded(handleDragEnd)
-        )
         .accessibilityLabel("24時間リング。ドラッグして時間帯にカテゴリを割り当てます。")
     }
 
@@ -223,16 +225,31 @@ struct TimeWheelView: View {
     }
 
     private func drawHourLabels(_ ctx: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
-        let labels: [(Int, String)] = [(0, "0"), (6, "6"), (12, "12"), (18, "18")]
-        let r = radius - thickness / 2 - 14
-        for (hour, text) in labels {
+        let r = radius - thickness / 2 - 12
+        for hour in 0..<24 {
             let a = angle(forMinute: hour * 60).radians
             let p = CGPoint(x: center.x + cos(a) * r, y: center.y + sin(a) * r)
             let resolved = ctx.resolve(
-                Text(text).font(.caption2.weight(.semibold)).foregroundColor(.secondary)
+                Text("\(hour)")
+                    .font(.system(size: hour % 6 == 0 ? 8 : 6.5, weight: hour % 6 == 0 ? .bold : .medium))
+                    .foregroundColor(.secondary)
             )
             ctx.draw(resolved, at: p)
         }
+    }
+}
+
+private struct RingHitShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let outer = min(rect.width, rect.height) / 2 - 2
+        let inner = max(0, outer - 58)
+        var path = Path()
+        path.addArc(center: center, radius: outer, startAngle: .degrees(0), endAngle: .degrees(360), clockwise: false)
+        path.addLine(to: CGPoint(x: center.x + inner, y: center.y))
+        path.addArc(center: center, radius: inner, startAngle: .degrees(0), endAngle: .degrees(360), clockwise: true)
+        path.closeSubpath()
+        return path
     }
 }
 

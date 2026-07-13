@@ -12,9 +12,8 @@ struct TimeScheduleView: View {
     /// nil = eraser (未設定に戻す).
     @State private var activeCategoryID: String? = TimeCategory.presets.first?.id
     @State private var slots = [String?](repeating: nil, count: slotsPerDay)
-    @State private var showAddCategory = false
-    @State private var showSettings = false
     @State private var selectedRange: SelectedSlotRange?
+    @State private var presentedSheet: EditorSheet?
 
     init(date: Date = Date(), kind: ScheduleKind = .plan) {
         _date = State(initialValue: Calendar.current.startOfDay(for: date))
@@ -26,14 +25,11 @@ struct TimeScheduleView: View {
             ScrollView {
                 VStack(spacing: 22) {
                     kindPicker
-                    dateStepper
-                    QuickActions(
-                        isToday: Calendar.current.isDateInToday(date),
-                        isYesterday: Calendar.current.isDateInYesterday(date),
-                        canCopyPlan: kind == .actual && store.hasSchedule(date: date, kind: .plan),
-                        onToday: { date = Calendar.current.startOfDay(for: Date()) },
-                        onYesterday: { date = Calendar.current.date(byAdding: .day, value: -1, to: Calendar.current.startOfDay(for: Date())) ?? date },
-                        onCopyPlan: copyPlanToActual
+                    DateNavigator(
+                        date: date,
+                        onYesterday: selectYesterday,
+                        onToday: selectToday,
+                        onCalendar: { presentedSheet = .date }
                     )
                     wheel
                     if let selectedRange {
@@ -42,7 +38,8 @@ struct TimeScheduleView: View {
                             category: store.category(id: selectedRange.categoryID),
                             onAdjustStart: adjustSelectedStart,
                             onAdjustEnd: adjustSelectedEnd,
-                            onDelete: deleteSelectedRange
+                            onDelete: deleteSelectedRange,
+                            onDone: { self.selectedRange = nil }
                         )
                     } else {
                         Text("塗った区間をタップすると、開始・終了を細かく調整できます")
@@ -63,17 +60,32 @@ struct TimeScheduleView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                    Menu {
+                        Button("予定パターン", systemImage: "square.stack.3d.up") { presentedSheet = .templates }
+                        Button("設定", systemImage: "gearshape") { presentedSheet = .settings }
+                    } label: { Image(systemName: "ellipsis.circle") }
                 }
             }
-            .sheet(isPresented: $showAddCategory) {
-                CategoryEditorSheet { name, hex, symbol in
-                    let cat = store.addCustomCategory(name: name, colorHex: hex, symbol: symbol)
-                    activeCategoryID = cat.id
+            .sheet(item: $presentedSheet) { sheet in
+                switch sheet {
+                case .category:
+                    CategoryEditorSheet { name, hex, symbol in
+                        let cat = store.addCustomCategory(name: name, colorHex: hex, symbol: symbol)
+                        activeCategoryID = cat.id
+                    }
+                case .settings:
+                    SettingsView(writer: vault)
+                case .templates:
+                    ScheduleTemplateSheet(
+                        templates: store.templates,
+                        canSaveCurrent: kind == .plan && assignedMinutes > 0,
+                        onApply: applyTemplate,
+                        onSave: saveCurrentTemplate,
+                        onDelete: store.deleteTemplate
+                    )
+                case .date:
+                    ScheduleDatePickerSheet(date: $date)
                 }
-            }
-            .sheet(isPresented: $showSettings) {
-                SettingsView(writer: vault)
             }
         }
         .onAppear(perform: reload)
@@ -117,10 +129,37 @@ struct TimeScheduleView: View {
         max(0, min(lhs.end, rhs.end) - max(lhs.start, rhs.start))
     }
 
-    private func copyPlanToActual() {
-        store.copySchedule(date: date, from: .plan, to: .actual)
+    private func selectToday() {
+        date = Calendar.current.startOfDay(for: Date())
+    }
+
+    private func selectYesterday() {
+        date = Calendar.current.date(byAdding: .day, value: -1, to: Calendar.current.startOfDay(for: Date())) ?? date
+    }
+
+    private func applyTemplate(_ template: ScheduleTemplate) {
+        let blocks = template.blocks.map { block in
+            var imported = block
+            imported.id = UUID()
+            imported.source = .imported
+            imported.isUserModified = false
+            return imported
+        }
+        store.save(DaySchedule(date: date, kind: kind, blocks: blocks))
         reload()
-        commit()
+        mirrorToVault()
+    }
+
+    private func saveCurrentTemplate(_ name: String) {
+        store.saveTemplate(name: name, blocks: TimeGrid.blocks(from: slots, source: .imported))
+    }
+
+    private func mirrorToVault() {
+        guard vault.isConfigured else { return }
+        vault.writeDay(date: date,
+                       plan: store.schedule(date: date, kind: .plan),
+                       actual: store.schedule(date: date, kind: .actual),
+                       categories: store.categories)
     }
 
     private func adjustSelectedStart(_ delta: Int) {
@@ -161,29 +200,6 @@ struct TimeScheduleView: View {
             ForEach(ScheduleKind.allCases) { k in Text(k.title).tag(k) }
         }
         .pickerStyle(.segmented)
-    }
-
-    private var dateStepper: some View {
-        HStack {
-            Button { shiftDay(-1) } label: { Image(systemName: "chevron.left") }
-            Spacer()
-            VStack(spacing: 2) {
-                Text(date, format: .dateTime.weekday(.wide))
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(date, format: .dateTime.month().day())
-                    .font(.headline)
-            }
-            Spacer()
-            Button { shiftDay(1) } label: { Image(systemName: "chevron.right") }
-        }
-        .buttonStyle(.bordered)
-        .padding(.horizontal, 4)
-    }
-
-    private func shiftDay(_ delta: Int) {
-        if let d = Calendar.current.date(byAdding: .day, value: delta, to: date) {
-            date = Calendar.current.startOfDay(for: d)
-        }
     }
 
     private var wheel: some View {
@@ -256,7 +272,7 @@ struct TimeScheduleView: View {
     }
 
     private var addChip: some View {
-        Button { showAddCategory = true } label: {
+        Button { presentedSheet = .category } label: {
             Image(systemName: "plus")
                 .font(.subheadline.weight(.semibold))
                 .padding(10)
@@ -330,12 +346,18 @@ struct TimeScheduleView: View {
     }
 }
 
+private enum EditorSheet: String, Identifiable {
+    case category, settings, templates, date
+    var id: String { rawValue }
+}
+
 private struct TimeRangeEditor: View {
     let selection: SelectedSlotRange
     let category: TimeCategory?
     let onAdjustStart: (Int) -> Void
     let onAdjustEnd: (Int) -> Void
     let onDelete: () -> Void
+    let onDone: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
@@ -346,6 +368,9 @@ private struct TimeRangeEditor: View {
                 Spacer()
                 Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
                     .accessibilityLabel("この区間を削除")
+                Button("完了", action: onDone)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
             }
 
             HStack(spacing: 12) {
@@ -400,26 +425,63 @@ private struct TimeBoundaryControl: View {
     }
 }
 
-private struct QuickActions: View {
-    let isToday: Bool
-    let isYesterday: Bool
-    let canCopyPlan: Bool
-    let onToday: () -> Void
+private struct DateNavigator: View {
+    let date: Date
     let onYesterday: () -> Void
-    let onCopyPlan: () -> Void
+    let onToday: () -> Void
+    let onCalendar: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button("昨日", action: onYesterday).buttonStyle(.bordered).disabled(isYesterday)
-            Button("今日", action: onToday).buttonStyle(.bordered).disabled(isToday)
-            Spacer()
-            if canCopyPlan {
-                Button("予定を複製", systemImage: "doc.on.doc", action: onCopyPlan)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.indigo)
+        VStack(spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(statusText)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(statusColor)
+                    Text(date, format: .dateTime.year().month(.wide).day().weekday(.wide))
+                        .font(.headline)
+                }
+                Spacer()
+                Button(action: onCalendar) { Image(systemName: "calendar") }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("カレンダーから日付を選ぶ")
+            }
+            HStack(spacing: 8) {
+                DateShortcutButton(title: "昨日", isSelected: Calendar.current.isDateInYesterday(date), action: onYesterday)
+                DateShortcutButton(title: "今日", isSelected: Calendar.current.isDateInToday(date), action: onToday)
+                Spacer()
             }
         }
-        .font(.caption.weight(.semibold))
+        .padding()
+        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var statusText: String {
+        if Calendar.current.isDateInToday(date) { return "今日" }
+        if Calendar.current.isDateInYesterday(date) { return "昨日" }
+        return "選択中の日付"
+    }
+
+    private var statusColor: Color {
+        Calendar.current.isDateInToday(date) ? .blue : Calendar.current.isDateInYesterday(date) ? .indigo : .secondary
+    }
+}
+
+private struct DateShortcutButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(isSelected ? .white : .primary)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 8)
+                .background(isSelected ? Color.blue : Color(.tertiarySystemFill), in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
