@@ -89,7 +89,11 @@ enum DayFlowSharedStore {
             day = calendar.startOfDay(for: now)
             range = max(0, min(1440, minutes))..<1440
         }
-        mergePlanBlock(day: day, range: range, categoryID: "sleep")
+        if isWakeTime {
+            replaceMorningSleepBlock(day: day, wakeMinute: minutes)
+        } else {
+            mergePlanBlock(day: day, range: range, categoryID: "sleep")
+        }
     }
 
     private struct SharedSchedule: Codable {
@@ -191,6 +195,58 @@ enum DayFlowSharedStore {
         schedule.blocks = blocks
         schedules[key] = schedule
         try? save(schedules, named: schedulesFile)
+    }
+
+    /// Replace the sleep segment connected to midnight while preserving daytime
+    /// activities and the separate bedtime segment later on the same date.
+    private static func replaceMorningSleepBlock(day: Date, wakeMinute: Int) {
+        var schedules: [String: SharedSchedule] = load(named: schedulesFile) ?? [:]
+        let key = "\(dayKey(day))_plan"
+        var schedule = schedules[key] ?? SharedSchedule(
+            date: Calendar.current.startOfDay(for: day), kind: "plan", blocks: []
+        )
+        var slots = [SharedBlock?](repeating: nil, count: 288)
+        for block in schedule.blocks {
+            let lower = max(0, block.start / 5)
+            let upper = min(288, Int(ceil(Double(block.end) / 5.0)))
+            guard lower < upper else { continue }
+            for index in lower..<upper { slots[index] = block }
+        }
+
+        // Remove only the leading sleep run that represents the old wake time.
+        var index = 0
+        while index < slots.count, slots[index]?.categoryID == "sleep" {
+            slots[index] = nil
+            index += 1
+        }
+
+        let upper = min(288, Int(ceil(Double(max(0, min(1440, wakeMinute))) / 5.0)))
+        let sleep = SharedBlock(id: UUID(), categoryID: "sleep", tags: [], start: 0,
+                                end: upper * 5, source: "imported", isUserModified: false)
+        for slot in 0..<upper where slots[slot] == nil { slots[slot] = sleep }
+
+        schedule.blocks = compactBlocks(from: slots)
+        schedules[key] = schedule
+        try? save(schedules, named: schedulesFile)
+    }
+
+    private static func compactBlocks(from slots: [SharedBlock?]) -> [SharedBlock] {
+        var blocks: [SharedBlock] = []
+        var index = 0
+        while index < slots.count {
+            guard let slot = slots[index] else { index += 1; continue }
+            var end = index + 1
+            while end < slots.count,
+                  slots[end]?.categoryID == slot.categoryID,
+                  slots[end]?.tags == slot.tags,
+                  slots[end]?.source == slot.source,
+                  slots[end]?.isUserModified == slot.isUserModified { end += 1 }
+            blocks.append(SharedBlock(id: UUID(), categoryID: slot.categoryID, tags: slot.tags,
+                                      start: index * 5, end: end * 5, source: slot.source,
+                                      isUserModified: slot.isUserModified))
+            index = end
+        }
+        return blocks
     }
 
     private static func loadWorkLogs() -> [String: WorkdayRecord] {

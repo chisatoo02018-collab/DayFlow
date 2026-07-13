@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WakeTimePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(ScheduleStore.self) private var scheduleStore
     @State private var customTime = Self.date(hour: 7, minute: 0)
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -74,6 +75,7 @@ struct WakeTimePickerSheet: View {
         Task {
             do {
                 _ = try await SetWakeTimeIntent(time: time).perform()
+                scheduleStore.reloadFromSharedContainer()
                 dismiss()
             } catch {
                 errorMessage = "設定できませんでした。アラームの許可を確認して、もう一度お試しください。"
