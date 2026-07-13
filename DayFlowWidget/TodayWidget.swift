@@ -26,7 +26,8 @@ struct TodayProvider: AppIntentTimelineProvider {
         return TodayEntry(
             date: Date(), events: events, reminders: reminders,
             eventCount: eventTotal, reminderCount: remTotal, overdueCount: overdueTotal,
-            showCalendar: showCal, showReminders: showRem, maxItems: 5
+            showCalendar: showCal, showReminders: showRem, maxItems: 5,
+            workRecord: DayFlowSharedStore.workRecord()
         )
     }
 }
@@ -39,8 +40,8 @@ struct TodayWidget: Widget {
             TodayWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("DayFlow Today")
-        .description("Today's events and reminders at a glance.")
+        .configurationDisplayName("今日のDayFlow")
+        .description("今日の予定と勤務状況を確認し、出社・退社をすぐ記録できます。")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
@@ -70,11 +71,25 @@ struct TodayWidgetView: View {
                     .font(.title.weight(.bold))
             }
 
-            Divider()
+            workStatus
 
-            if entry.showCalendar, let next = entry.events.first(where: { $0.startDate > Date() }) {
+            if entry.workRecord?.isWorking == true {
+                Button(intent: RecordDepartureIntent()) {
+                    Label("退社を記録", systemImage: "figure.walk.departure")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.indigo)
+            } else if entry.workRecord?.leftAt == nil {
+                Button(intent: RecordArrivalIntent()) {
+                    Label("出社を記録", systemImage: "building.2.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+            } else if entry.showCalendar, let next = entry.events.first(where: { $0.startDate > Date() }) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Next").font(.caption2).foregroundStyle(.secondary)
+                    Text("次の予定").font(.caption2).foregroundStyle(.secondary)
                     Text(next.title).font(.subheadline.weight(.medium)).lineLimit(2)
                     Text(next.timeText).font(.caption).foregroundStyle(next.color)
                 }
@@ -85,7 +100,7 @@ struct TodayWidgetView: View {
                         .foregroundStyle(first.isOverdue ? .red : .primary)
                 }
             } else {
-                Text("No upcoming items").font(.caption).foregroundStyle(.secondary)
+                Text("この先の予定はありません").font(.caption).foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -99,11 +114,18 @@ struct TodayWidgetView: View {
     }
 
     private var mediumView: some View {
-        HStack(spacing: 12) {
+        VStack(spacing: 10) {
+            HStack {
+                workStatus
+                Spacer()
+                workActionButtons
+            }
+            Divider()
+            HStack(spacing: 12) {
             if entry.showCalendar {
                 itemColumn(
-                    header: "Events", icon: "calendar", color: .blue,
-                    empty: "No events"
+                    header: "今日の予定", icon: "calendar", color: .blue,
+                    empty: "予定なし"
                 ) {
                     ForEach(entry.events.prefix(4)) { event in
                         HStack(spacing: 6) {
@@ -120,8 +142,8 @@ struct TodayWidgetView: View {
 
             if entry.showReminders {
                 itemColumn(
-                    header: "Reminders", icon: "checklist", color: .green,
-                    empty: "All done!", badge: entry.overdueCount > 0 ? "\(entry.overdueCount) overdue" : nil
+                    header: "タスク", icon: "checklist", color: .green,
+                    empty: "完了済み", badge: entry.overdueCount > 0 ? "期限超過 \(entry.overdueCount)" : nil
                 ) {
                     ForEach(entry.reminders.prefix(4)) { item in
                         HStack(spacing: 6) {
@@ -131,6 +153,7 @@ struct TodayWidgetView: View {
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -152,12 +175,18 @@ struct TodayWidgetView: View {
                 }
             }
 
+            HStack {
+                workStatus
+                Spacer()
+                workActionButtons
+            }
+
             Divider()
 
             if entry.showCalendar {
-                Label("Calendar", systemImage: "calendar").font(.caption.weight(.semibold)).foregroundStyle(.blue)
+                Label("今日の予定", systemImage: "calendar").font(.caption.weight(.semibold)).foregroundStyle(.blue)
                 if entry.events.isEmpty {
-                    Text("No events today").font(.caption).foregroundStyle(.secondary)
+                    Text("今日の予定はありません").font(.caption).foregroundStyle(.secondary)
                 } else {
                     ForEach(entry.events.prefix(5)) { event in
                         HStack(spacing: 8) {
@@ -175,9 +204,9 @@ struct TodayWidgetView: View {
             if entry.showCalendar && entry.showReminders { Divider() }
 
             if entry.showReminders {
-                Label("Reminders", systemImage: "checklist").font(.caption.weight(.semibold)).foregroundStyle(.green)
+                Label("タスク", systemImage: "checklist").font(.caption.weight(.semibold)).foregroundStyle(.green)
                 if entry.reminders.isEmpty {
-                    Text("All caught up!").font(.caption).foregroundStyle(.secondary)
+                    Text("すべて完了しています").font(.caption).foregroundStyle(.secondary)
                 } else {
                     ForEach(entry.reminders.prefix(5)) { item in
                         HStack(spacing: 6) {
@@ -192,6 +221,40 @@ struct TodayWidgetView: View {
 
             Spacer(minLength: 0)
         }
+    }
+
+    private var workStatus: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let record = entry.workRecord, record.isWorking, let arrived = record.arrivedAt {
+                Label("勤務中", systemImage: "briefcase.fill").foregroundStyle(.indigo)
+                Text("\(arrived.formatted(date: .omitted, time: .shortened))から")
+                    .font(.caption2).foregroundStyle(.secondary)
+            } else if let left = entry.workRecord?.leftAt {
+                Label("退社済み", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                Text(left.formatted(date: .omitted, time: .shortened))
+                    .font(.caption2).foregroundStyle(.secondary)
+            } else {
+                Label("勤務前", systemImage: "sunrise.fill").foregroundStyle(.blue)
+                Text("出社時に記録")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption.weight(.semibold))
+    }
+
+    private var workActionButtons: some View {
+        HStack(spacing: 6) {
+            Button(intent: RecordArrivalIntent()) {
+                Label("出社", systemImage: "building.2.fill")
+            }
+            .tint(.blue)
+            Button(intent: RecordDepartureIntent()) {
+                Label("退社", systemImage: "figure.walk.departure")
+            }
+            .tint(.indigo)
+        }
+        .buttonStyle(.bordered)
+        .labelStyle(.iconOnly)
     }
 
     private func itemColumn<Content: View>(

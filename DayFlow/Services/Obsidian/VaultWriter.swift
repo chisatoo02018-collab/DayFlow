@@ -75,6 +75,37 @@ final class VaultWriter {
         }
     }
 
+    /// Writes today's Apple Watch metrics into the Daily note's health block. Independent
+    /// of `writeDay` — driven by the dashboard's HealthKit refresh — but lands in the same
+    /// Daily file via disjoint markers. No-op when nothing is configured.
+    func writeHealth(date: Date, snapshot: HealthSnapshot) {
+        let dailyPath = ScheduleMarkdown.dailyPath(for: date)
+        upsertLocalDailyHealth(relPath: dailyPath, date: date, snapshot: snapshot)
+
+        if github.enabled {
+            github.enqueueDailyHealth(
+                path: dailyPath,
+                date: date,
+                snapshot: snapshot,
+                message: "DayFlow: Dailyへ健康データを反映"
+            )
+        }
+    }
+
+    private func upsertLocalDailyHealth(relPath: String, date: Date, snapshot: HealthSnapshot) {
+        guard let vaultURL else { return }
+        guard vaultURL.startAccessingSecurityScopedResource() else { return }
+        defer { vaultURL.stopAccessingSecurityScopedResource() }
+
+        let fileURL = vaultURL.appendingPathComponent(relPath)
+        let current = try? String(contentsOf: fileURL, encoding: .utf8)
+        let updated = ScheduleMarkdown.upsertHealthSection(current: current, date: date, snapshot: snapshot)
+        try? FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try? updated.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+    }
+
     private func writeLocal(relPath: String, content: String) {
         guard let vaultURL else { return }
         guard vaultURL.startAccessingSecurityScopedResource() else { return }

@@ -6,16 +6,20 @@ import SwiftUI
 struct TimeScheduleView: View {
     @Environment(ScheduleStore.self) private var store
     @Environment(VaultWriter.self) private var vault
+    @Environment(HealthService.self) private var health
 
     @State private var date = Calendar.current.startOfDay(for: Date())
     @State private var kind: ScheduleKind = .plan
     /// nil = eraser (未設定に戻す).
     @State private var activeCategoryID: String? = TimeCategory.presets.first?.id
     @State private var slots = [String?](repeating: nil, count: slotsPerDay)
+    @State private var tagSlots = [Set<String>](repeating: [], count: slotsPerDay)
     @State private var selectedRange: SelectedSlotRange?
     @State private var presentedSheet: EditorSheet?
     @State private var isEditing = false
     @State private var showSyncConfirmation = false
+    @State private var showSleepImportAlert = false
+    @State private var sleepImportMessage = ""
 
     init(date: Date = Date(), kind: ScheduleKind = .plan) {
         _date = State(initialValue: Calendar.current.startOfDay(for: date))
@@ -31,8 +35,12 @@ struct TimeScheduleView: View {
                         date: date,
                         onYesterday: selectYesterday,
                         onToday: selectToday,
+                        onTomorrow: selectTomorrow,
                         onCalendar: { presentedSheet = .date }
                     )
+                    if canDuplicateFromPlan {
+                        DuplicatePlanCard(action: duplicatePlanToActual)
+                    }
                     EditingModeControl(
                         isEditing: isEditing,
                         onStart: { isEditing = true },
@@ -43,6 +51,9 @@ struct TimeScheduleView: View {
                         TimeRangeEditor(
                             selection: selectedRange,
                             category: store.category(id: selectedRange.categoryID),
+                            tagCategories: store.categories.filter { $0.id != selectedRange.categoryID },
+                            activeTags: tagsActive(in: selectedRange),
+                            onToggleTag: { toggleTag($0, in: selectedRange) },
                             onAdjustStart: adjustSelectedStart,
                             onAdjustEnd: adjustSelectedEnd,
                             onDelete: deleteSelectedRange,
@@ -73,6 +84,16 @@ struct TimeScheduleView: View {
                         Button("予定パターン", systemImage: "square.stack.3d.up") { presentedSheet = .templates }
                         Button("Obsidianへ同期", systemImage: "arrow.triangle.2.circlepath") { manualSync() }
                             .disabled(!vault.isConfigured)
+                        if health.isAvailable {
+                            Button("睡眠をヘルスから取り込む", systemImage: "bed.double.fill") {
+                                Task { await importSleepFromHealth(auto: false) }
+                            }
+                            .disabled(kind != .actual)
+                            Button("運動をヘルスから取り込む", systemImage: "figure.run") {
+                                Task { await importExerciseFromHealth(auto: false) }
+                            }
+                            .disabled(kind != .actual)
+                        }
                         Button("設定", systemImage: "gearshape") { presentedSheet = .settings }
                     } label: { Image(systemName: "ellipsis.circle") }
                 }
@@ -85,7 +106,7 @@ struct TimeScheduleView: View {
                         activeCategoryID = cat.id
                     }
                 case .settings:
-                    SettingsView(writer: vault)
+                    SettingsView(writer: vault, health: health)
                 case .templates:
                     ScheduleTemplateSheet(
                         templates: store.templates,
@@ -103,16 +124,167 @@ struct TimeScheduleView: View {
             } message: {
                 Text("詳細な時間割とデイリーノートの DayFlow セクションを更新しました。")
             }
+            .alert("ヘルスから取り込み", isPresented: $showSleepImportAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(sleepImportMessage)
+            }
         }
         .onAppear(perform: reload)
         .onChange(of: date) { _, _ in reload() }
         .onChange(of: kind) { _, _ in reload() }
+        .task(id: DaySchedule.key(date: date, kind: kind)) {
+            guard kind == .actual else { return }
+            if health.importsSleepToRing { await importSleepFromHealth(auto: true) }
+            if health.importsExerciseToRing { await importExerciseFromHealth(auto: true) }
+        }
+    }
+
+    // MARK: - Sleep import (HealthKit → 実績リング)
+
+    /// Paints the 睡眠 category from HealthKit sleep for the current day's 実績 ring.
+    /// HealthKit is authoritative for sleep (existing 睡眠 blocks are replaced), but it
+    /// only claims free minutes — a manually painted non-sleep block is never overwritten.
+    /// `auto` runs silently on view; the manual menu action reports the result.
+    private func importSleepFromHealth(auto: Bool) async {
+        guard kind == .actual, health.isAvailable else { return }
+        let intervals = await health.sleepIntervals(for: date)
+        guard !intervals.isEmpty else {
+            if !auto {
+                sleepImportMessage = "この日の睡眠データが見つかりませんでした。Apple Watchを着けて就寝すると記録されます。"
+                showSleepImportAlert = true
+            }
+            return
+        }
+
+        let sleepID = "sleep"
+        var sched = store.schedule(date: date, kind: .actual)
+        let before = sleepSignature(sched.blocks)
+        sched.blocks.removeAll { $0.categoryID == sleepID }
+
+        let occupied = TimeGrid.slots(from: sched.blocks)
+        let dayStart = Calendar.current.startOfDay(for: date)
+        var fill = [Bool](repeating: false, count: slotsPerDay)
+        for interval in intervals {
+            let lo = slotIndex(interval.start, dayStart: dayStart)
+            let hi = slotIndex(interval.end, dayStart: dayStart)
+            guard lo < hi else { continue }
+            for i in lo..<hi where occupied[i] == nil { fill[i] = true }
+        }
+
+        var i = 0
+        while i < slotsPerDay {
+            guard fill[i] else { i += 1; continue }
+            var j = i + 1
+            while j < slotsPerDay, fill[j] { j += 1 }
+            sched.blocks.append(TimeBlock(categoryID: sleepID, start: i * slotMinutes,
+                                          end: j * slotMinutes, source: .healthKit))
+            i = j
+        }
+
+        // Skip persistence when the sleep layout is unchanged, so silent auto-runs on
+        // every view don't spin up a redundant Obsidian commit.
+        guard sleepSignature(sched.blocks) != before else { return }
+        store.save(sched)
+        reload()
+        mirrorToVault()
+
+        if !auto {
+            let totalHours = intervals.reduce(0.0) { $0 + $1.duration } / 3600
+            sleepImportMessage = String(format: "睡眠 %.1f 時間を実績リングに反映しました。", totalHours)
+            showSleepImportAlert = true
+        }
+    }
+
+    /// Order-independent fingerprint of the sleep blocks (ignores UUIDs), for change detection.
+    private func sleepSignature(_ blocks: [TimeBlock]) -> [String] {
+        blocks.filter { $0.categoryID == "sleep" }
+            .sorted { $0.start < $1.start }
+            .map { "\($0.start)-\($0.end)" }
+    }
+
+    private func slotIndex(_ moment: Date, dayStart: Date) -> Int {
+        let minutes = Int(moment.timeIntervalSince(dayStart) / 60)
+        return min(slotsPerDay, max(0, minutes / slotMinutes))
+    }
+
+    /// Reflects HealthKit exercise minutes onto the current 実績 arrays: unaccounted active
+    /// time becomes primary 運動, active time that overlaps another activity becomes a 運動
+    /// tag on it. Operates on the loaded slot arrays (the view always shows `date`'s 実績
+    /// when this runs) and persists through `commit`.
+    private func importExerciseFromHealth(auto: Bool) async {
+        guard kind == .actual, health.isAvailable else { return }
+        let intervals = await health.exerciseIntervals(for: date)  // already merged
+        let exerciseID = "exercise"
+        let dayStart = Calendar.current.startOfDay(for: date)
+
+        var primary = slots
+        var tags = tagSlots
+        let beforePrimary = primary
+        let beforeTags = tags
+
+        // HealthKit is authoritative for 運動 here, so clear all prior exercise coverage
+        // first — otherwise shortened/deleted exercise (or an empty result) leaves stale
+        // slots and tags behind. Fresh intervals are then re-applied below.
+        for i in primary.indices where primary[i] == exerciseID { primary[i] = nil }
+        for i in tags.indices { tags[i].remove(exerciseID) }
+
+        for interval in intervals {
+            let lo = slotIndex(interval.start, dayStart: dayStart)
+            let hi = slotIndex(interval.end, dayStart: dayStart)
+            guard lo < hi else { continue }
+            for i in lo..<hi {
+                if primary[i] == nil {
+                    primary[i] = exerciseID
+                } else if primary[i] != exerciseID {
+                    tags[i].insert(exerciseID)
+                }
+            }
+        }
+
+        if primary != beforePrimary || tags != beforeTags {
+            slots = primary
+            tagSlots = tags
+            commit()
+        }
+
+        if !auto {
+            if intervals.isEmpty {
+                sleepImportMessage = "この日の運動データが見つかりませんでした。"
+            } else {
+                let minutes = Int(intervals.reduce(0.0) { $0 + $1.duration } / 60)
+                sleepImportMessage = "運動 \(minutes) 分をヘルスから反映しました（他の活動と重なる区間はタグになります）。"
+            }
+            showSleepImportAlert = true
+        }
+    }
+
+    // MARK: - Tags on the selected range
+
+    /// Tags present across the whole selected range (intersection), so the chip reflects a
+    /// tag that fully covers the block rather than a stray slot.
+    private func tagsActive(in range: SelectedSlotRange) -> Set<String> {
+        guard range.start < range.end, range.end <= tagSlots.count else { return [] }
+        var common = tagSlots[range.start]
+        for i in range.start..<range.end { common.formIntersection(tagSlots[i]) }
+        return common
+    }
+
+    private func toggleTag(_ tag: String, in range: SelectedSlotRange) {
+        guard range.start < range.end, range.end <= tagSlots.count else { return }
+        let isActive = tagsActive(in: range).contains(tag)
+        for i in range.start..<range.end {
+            if isActive { tagSlots[i].remove(tag) } else { tagSlots[i].insert(tag) }
+        }
+        commit()
     }
 
     // MARK: - Load / save
 
     private func reload() {
-        slots = TimeGrid.slots(from: store.schedule(date: date, kind: kind).blocks)
+        let blocks = store.schedule(date: date, kind: kind).blocks
+        slots = TimeGrid.slots(from: blocks)
+        tagSlots = TimeGrid.tagSlots(from: blocks)
         selectedRange = nil
         isEditing = false
     }
@@ -120,7 +292,7 @@ struct TimeScheduleView: View {
     private func commit() {
         var sched = store.schedule(date: date, kind: kind)
         let previous = sched.blocks
-        sched.blocks = TimeGrid.blocks(from: slots).map { block in
+        sched.blocks = TimeGrid.blocks(from: slots, tagSlots: tagSlots).map { block in
             guard let original = previous
                 .filter({ $0.categoryID == block.categoryID })
                 .max(by: { overlap($0, block) < overlap($1, block) }),
@@ -133,6 +305,9 @@ struct TimeScheduleView: View {
             return updated
         }
         store.save(sched)
+        // Re-derive tag slots from the saved blocks so painted-over/erased tags don't
+        // linger in the layer (blocks only carry tags where a primary exists).
+        tagSlots = TimeGrid.tagSlots(from: sched.blocks)
         // Mirror the whole day (both kinds) to Obsidian if configured. No-op otherwise.
         if vault.isConfigured {
             vault.writeDay(date: date,
@@ -152,6 +327,10 @@ struct TimeScheduleView: View {
 
     private func selectYesterday() {
         date = Calendar.current.date(byAdding: .day, value: -1, to: Calendar.current.startOfDay(for: Date())) ?? date
+    }
+
+    private func selectTomorrow() {
+        date = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: Date())) ?? date
     }
 
     private func finishEditing() {
@@ -182,6 +361,20 @@ struct TimeScheduleView: View {
                        plan: store.schedule(date: date, kind: .plan),
                        actual: store.schedule(date: date, kind: .actual),
                        categories: store.categories)
+    }
+
+    /// Offer plan→actual duplication only when recording an actual that's still empty and a
+    /// plan for that day exists — the "差分だけ直す" shortcut the 今日タブ points at.
+    private var canDuplicateFromPlan: Bool {
+        kind == .actual
+            && store.hasSchedule(date: date, kind: .plan)
+            && !store.hasSchedule(date: date, kind: .actual)
+    }
+
+    private func duplicatePlanToActual() {
+        store.copySchedule(date: date, from: .plan, to: .actual)
+        reload()
+        mirrorToVault()
     }
 
     private func manualSync() {
@@ -231,7 +424,7 @@ struct TimeScheduleView: View {
 
     private var wheel: some View {
         ZStack {
-            TimeWheelView(slots: $slots, selection: $selectedRange,
+            TimeWheelView(slots: $slots, tagSlots: tagSlots, selection: $selectedRange,
                           isEditing: isEditing, activeCategoryID: activeCategoryID,
                           colorFor: colorFor, onCommit: commit)
             centerReadout
@@ -338,10 +531,37 @@ struct TimeScheduleView: View {
                     .accessibilityHint("最初の\(row.name)区間を選択して時刻を編集")
                 }
             }
+
+            if !tagRows.isEmpty {
+                Divider().padding(.vertical, 2)
+                Text("タグ（兼ねた活動）").font(.caption).foregroundStyle(.secondary)
+                ForEach(tagRows, id: \.id) { row in
+                    HStack(spacing: 10) {
+                        Image(systemName: "tag.fill").font(.caption2).foregroundStyle(row.color)
+                        Text(row.name).font(.subheadline)
+                        Spacer()
+                        Text(hoursText(row.minutes))
+                            .font(.subheadline.weight(.semibold)).monospacedDigit()
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Minutes each tag covers across the day (independent of the primary partition, so
+    /// these can sum past the block's own time — that's the point of overlap).
+    private var tagRows: [Row] {
+        var totals: [String: Int] = [:]
+        for set in tagSlots { for tag in set { totals[tag, default: 0] += slotMinutes } }
+        return totals
+            .sorted { $0.value > $1.value }
+            .map { id, mins in
+                let cat = store.category(id: id)
+                return Row(id: id, name: cat?.name ?? id, color: cat?.color ?? .gray, minutes: mins, percent: 0)
+            }
     }
 
     private struct Row: Identifiable { let id: String; let name: String; let color: Color; let minutes: Int; let percent: Int }
@@ -382,6 +602,9 @@ private enum EditorSheet: String, Identifiable {
 private struct TimeRangeEditor: View {
     let selection: SelectedSlotRange
     let category: TimeCategory?
+    let tagCategories: [TimeCategory]
+    let activeTags: Set<String>
+    let onToggleTag: (String) -> Void
     let onAdjustStart: (Int) -> Void
     let onAdjustEnd: (Int) -> Void
     let onDelete: () -> Void
@@ -420,9 +643,39 @@ private struct TimeRangeEditor: View {
             Text("\(durationText(selection.durationMinutes)) · 5分単位")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+
+            tagPicker
         }
         .padding()
         .background((category?.color ?? .gray).opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// Toggle secondary tags for this range — e.g. mark a 移動 block as also 運動.
+    private var tagPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("兼ねている活動（タグ）")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(tagCategories) { cat in
+                        let on = activeTags.contains(cat.id)
+                        Button { onToggleTag(cat.id) } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: cat.symbol).font(.caption2)
+                                Text(cat.name).font(.caption.weight(.medium))
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .foregroundStyle(on ? .white : .primary)
+                            .background(on ? cat.color : Color(.tertiarySystemFill), in: Capsule())
+                            .overlay(Capsule().stroke(cat.color, lineWidth: on ? 0 : 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
     }
 
     private func durationText(_ minutes: Int) -> String {
@@ -457,6 +710,7 @@ private struct DateNavigator: View {
     let date: Date
     let onYesterday: () -> Void
     let onToday: () -> Void
+    let onTomorrow: () -> Void
     let onCalendar: () -> Void
 
     var body: some View {
@@ -477,6 +731,7 @@ private struct DateNavigator: View {
             HStack(spacing: 8) {
                 DateShortcutButton(title: "昨日", isSelected: Calendar.current.isDateInYesterday(date), action: onYesterday)
                 DateShortcutButton(title: "今日", isSelected: Calendar.current.isDateInToday(date), action: onToday)
+                DateShortcutButton(title: "明日", isSelected: Calendar.current.isDateInTomorrow(date), action: onTomorrow)
                 Spacer()
             }
         }
@@ -487,11 +742,15 @@ private struct DateNavigator: View {
     private var statusText: String {
         if Calendar.current.isDateInToday(date) { return "今日" }
         if Calendar.current.isDateInYesterday(date) { return "昨日" }
+        if Calendar.current.isDateInTomorrow(date) { return "明日" }
         return "選択中の日付"
     }
 
     private var statusColor: Color {
-        Calendar.current.isDateInToday(date) ? .blue : Calendar.current.isDateInYesterday(date) ? .indigo : .secondary
+        if Calendar.current.isDateInToday(date) { return .blue }
+        if Calendar.current.isDateInYesterday(date) { return .indigo }
+        if Calendar.current.isDateInTomorrow(date) { return .purple }
+        return .secondary
     }
 }
 
@@ -510,6 +769,30 @@ private struct DateShortcutButton: View {
                 .background(isSelected ? Color.blue : Color(.tertiarySystemFill), in: Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct DuplicatePlanCard: View {
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "doc.on.doc.fill")
+                .font(.title3).foregroundStyle(.indigo)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("予定から実績を複製")
+                    .font(.subheadline.weight(.bold))
+                Text("この日の予定をコピーして、違うところだけ直せます")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("複製", action: action)
+                .buttonStyle(.borderedProminent)
+                .tint(.indigo)
+                .controlSize(.small)
+        }
+        .padding()
+        .background(.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
     }
 }
 

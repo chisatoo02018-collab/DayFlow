@@ -10,7 +10,7 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "1.1.0"
-    CURRENT_PROJECT_VERSION: "15"
+    CURRENT_PROJECT_VERSION: "21"
     DEVELOPMENT_TEAM: WY55TM2MU8
     CODE_SIGN_STYLE: Automatic
 
@@ -20,6 +20,7 @@ targets:
     platform: iOS
     sources:
       - path: DayFlow
+      - path: DayFlowShared
       - path: Assets.xcassets
     settings:
       base:
@@ -37,6 +38,7 @@ targets:
     platform: iOS
     sources:
       - path: DayFlowWidget
+      - path: DayFlowShared
     settings:
       base:
         INFOPLIST_FILE: DayFlowWidget/Info.plist

@@ -41,5 +41,9 @@
 	<string>DayFlow needs access to your calendars to display events on the dashboard and widgets.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>DayFlow needs access to your reminders to display them on the dashboard and widgets.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>DayFlow reads your Apple Watch health data (steps, heart rate, sleep, energy) to show a daily summary on the dashboard.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>DayFlow does not write to Health; this permission is only present to satisfy HealthKit requirements.</string>
 </dict>
 </plist>

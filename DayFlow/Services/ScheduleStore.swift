@@ -21,11 +21,18 @@ final class ScheduleStore {
     private let templatesURL: URL
 
     init() {
-        let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let base = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: DayFlowSharedStore.appGroupID
+        ) ?? documents
         dir = base
         schedulesURL = base.appendingPathComponent("schedules.json")
         categoriesURL = base.appendingPathComponent("custom_categories.json")
         templatesURL = base.appendingPathComponent("schedule_templates.json")
+
+        Self.migrateLegacyFile(named: "schedules.json", from: documents, to: base)
+        Self.migrateLegacyFile(named: "custom_categories.json", from: documents, to: base)
+        Self.migrateLegacyFile(named: "schedule_templates.json", from: documents, to: base)
 
         let custom = Self.load([TimeCategory].self, from: categoriesURL) ?? []
         categories = TimeCategory.presets + custom.filter { $0.isCustom }
@@ -103,6 +110,12 @@ final class ScheduleStore {
             .sorted { $0.date < $1.date }
     }
 
+    /// Reload changes written by a widget, Control Center control, or Shortcut while
+    /// the app process was suspended.
+    func reloadFromSharedContainer() {
+        schedules = Self.load([String: DaySchedule].self, from: schedulesURL) ?? schedules
+    }
+
     @discardableResult
     func saveTemplate(name: String, blocks: [TimeBlock]) -> ScheduleTemplate {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -122,6 +135,15 @@ final class ScheduleStore {
     private func persistSchedules() { Self.save(schedules, to: schedulesURL) }
     private func persistCategories() { Self.save(customCategories, to: categoriesURL) }
     private func persistTemplates() { Self.save(templates, to: templatesURL) }
+
+    private static func migrateLegacyFile(named name: String, from documents: URL, to base: URL) {
+        let oldURL = documents.appendingPathComponent(name)
+        let newURL = base.appendingPathComponent(name)
+        guard oldURL != newURL,
+              !FileManager.default.fileExists(atPath: newURL.path),
+              FileManager.default.fileExists(atPath: oldURL.path) else { return }
+        try? FileManager.default.copyItem(at: oldURL, to: newURL)
+    }
 
     private static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
         guard let data = try? Data(contentsOf: url) else { return nil }

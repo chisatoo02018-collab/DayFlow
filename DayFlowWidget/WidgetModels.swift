@@ -88,11 +88,13 @@ struct TodayEntry: TimelineEntry {
     let showCalendar: Bool
     let showReminders: Bool
     let maxItems: Int
+    let workRecord: WorkdayRecord?
 
     static var placeholder: TodayEntry {
         TodayEntry(date: Date(), events: [], reminders: [],
                    eventCount: 3, reminderCount: 5, overdueCount: 1,
-                   showCalendar: true, showReminders: true, maxItems: 5)
+                   showCalendar: true, showReminders: true, maxItems: 5,
+                   workRecord: nil)
     }
 }
 

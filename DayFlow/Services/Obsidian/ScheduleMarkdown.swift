@@ -9,6 +9,8 @@ import Foundation
 enum ScheduleMarkdown {
     private static let dailyStart = "<!-- dayflow-daily:start -->"
     private static let dailyEnd = "<!-- dayflow-daily:end -->"
+    private static let healthStart = "<!-- dayflow-health:start -->"
+    private static let healthEnd = "<!-- dayflow-health:end -->"
 
     static func vaultPath(for date: Date) -> String {
         let day = Calendar.current.startOfDay(for: date)
@@ -45,6 +47,41 @@ enum ScheduleMarkdown {
         return base + "\n" + section + "\n"
     }
 
+    /// Upserts the Apple Watch health block in a Daily note, keyed by its own markers so
+    /// it never touches the `## DayFlow` schedule block written by `upsertDailySection`.
+    static func upsertHealthSection(current: String?, date: Date, snapshot: HealthSnapshot) -> String {
+        var base = current ?? dailySkeleton(for: date)
+        let section = healthSection(snapshot: snapshot)
+        if let start = base.range(of: healthStart),
+           let end = base.range(of: healthEnd, range: start.upperBound..<base.endIndex) {
+            base.replaceSubrange(start.lowerBound..<end.upperBound, with: section)
+            return base
+        }
+        if !base.hasSuffix("\n") { base += "\n" }
+        return base + "\n" + section + "\n"
+    }
+
+    static func healthSection(snapshot: HealthSnapshot) -> String {
+        var out = "\(healthStart)\n## ヘルス\n\n"
+        guard snapshot.hasAnyData else {
+            return out + "記録なし\n" + healthEnd
+        }
+        out += "> [!info] Apple Watch\n"
+        func line(_ label: String, _ value: String?) -> String {
+            guard let value else { return "" }
+            return "> \(label): **\(value)**\n"
+        }
+        out += line("歩数", snapshot.steps.map { "\($0.formatted()) 歩" })
+        out += line("安静時心拍", snapshot.restingHeartRate.map { "\($0) bpm" })
+        out += line("平均心拍", snapshot.averageHeartRate.map { "\($0) bpm" })
+        out += line("睡眠", snapshot.sleepHours.map { String(format: "%.1f 時間", $0) })
+        out += line("消費カロリー", snapshot.activeEnergy.map { "\($0) kcal" })
+        out += line("運動", snapshot.exerciseMinutes.map { "\($0) 分" })
+        out += "\n"
+        out += healthEnd
+        return out
+    }
+
     static func dailySection(date: Date, plan: DaySchedule, actual: DaySchedule,
                              categories: [TimeCategory]) -> String {
         let key = DateFormatting.dayKey.string(from: Calendar.current.startOfDay(for: date))
@@ -59,7 +96,10 @@ enum ScheduleMarkdown {
         } else {
             out += "**\(label)タイムライン**\n\n"
             for block in plotted.sorted(by: { $0.start < $1.start }) {
-                out += "- `\(block.start.asClock)–\(block.end.asClock)` \(lookup[block.categoryID] ?? block.categoryID)\n"
+                let name = lookup[block.categoryID] ?? block.categoryID
+                let tagSuffix = block.tags.isEmpty ? "" :
+                    " ＋" + block.tags.map { lookup[$0] ?? $0 }.joined(separator: "・")
+                out += "- `\(block.start.asClock)–\(block.end.asClock)` \(name)\(tagSuffix)\n"
             }
             out += "\n"
         }

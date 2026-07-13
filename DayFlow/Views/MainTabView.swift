@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct MainTabView: View {
+    @Environment(ScheduleStore.self) private var scheduleStore
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .today
     @State private var recorderDate = Date()
     @State private var recorderKind: ScheduleKind = .plan
@@ -23,6 +25,9 @@ struct MainTabView: View {
             InsightsView()
                 .tabItem { Label("分析", systemImage: "chart.bar.fill") }
                 .tag(AppTab.insights)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { scheduleStore.reloadFromSharedContainer() }
         }
     }
 }

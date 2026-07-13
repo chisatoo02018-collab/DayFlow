@@ -19,6 +19,9 @@ struct SelectedSlotRange: Equatable {
 /// overwrite. The parent converts slots to/from `TimeBlock`s.
 struct TimeWheelView: View {
     @Binding var slots: [String?]
+    /// Per-slot secondary tags, drawn as a thin ring just inside the main arc. Read-only
+    /// here; the parent edits tags via the range editor.
+    var tagSlots: [Set<String>] = []
     @Binding var selection: SelectedSlotRange?
     let isEditing: Bool
     /// nil id ("消しゴム") erases; otherwise the category being painted.
@@ -186,6 +189,7 @@ struct TimeWheelView: View {
 
         drawTrack(&ctx, center: center, radius: radius)
         drawSegments(&ctx, center: center, radius: radius)
+        drawTagRing(&ctx, center: center, radius: radius)
         drawHourTicks(&ctx, center: center, radius: radius)
         drawHourLabels(&ctx, center: center, radius: radius)
     }
@@ -210,6 +214,26 @@ struct TimeWheelView: View {
                         endAngle: angle(forMinute: block.end), clockwise: false)
             ctx.stroke(path, with: .color(colorFor(block.categoryID)),
                        style: StrokeStyle(lineWidth: thickness, lineCap: .butt))
+        }
+    }
+
+    /// A thin ring just inside the main arc marking slots that carry a tag. Colored by the
+    /// tag (first tag when a slot has several), so an overlap like 移動+運動 reads at a glance.
+    private func drawTagRing(_ ctx: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
+        guard !tagSlots.isEmpty else { return }
+        let tagRadius = radius - thickness / 2 - 5
+        var run = 0
+        while run < slotsPerDay {
+            guard run < tagSlots.count, let tag = tagSlots[run].sorted().first else { run += 1; continue }
+            var end = run + 1
+            while end < slotsPerDay, end < tagSlots.count, tagSlots[end].sorted().first == tag { end += 1 }
+            var path = Path()
+            path.addArc(center: center, radius: tagRadius,
+                        startAngle: angle(forMinute: run * slotMinutes),
+                        endAngle: angle(forMinute: end * slotMinutes), clockwise: false)
+            ctx.stroke(path, with: .color(colorFor(tag)),
+                       style: StrokeStyle(lineWidth: 5, lineCap: .butt))
+            run = end
         }
     }
 

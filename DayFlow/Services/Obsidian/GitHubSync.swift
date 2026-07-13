@@ -10,13 +10,16 @@ struct ScheduleSyncOp: Codable, Identifiable {
     var content: String
     var message: String
     var dailySnapshot: DailyScheduleSnapshot?
+    var healthSnapshot: DailyHealthSnapshot?
 
-    init(path: String, content: String, message: String, dailySnapshot: DailyScheduleSnapshot? = nil) {
+    init(path: String, content: String, message: String,
+         dailySnapshot: DailyScheduleSnapshot? = nil, healthSnapshot: DailyHealthSnapshot? = nil) {
         self.id = UUID()
         self.path = path
         self.content = content
         self.message = message
         self.dailySnapshot = dailySnapshot
+        self.healthSnapshot = healthSnapshot
     }
 }
 
@@ -25,6 +28,11 @@ struct DailyScheduleSnapshot: Codable {
     var plan: DaySchedule
     var actual: DaySchedule
     var categories: [TimeCategory]
+}
+
+struct DailyHealthSnapshot: Codable {
+    var date: Date
+    var snapshot: HealthSnapshot
 }
 
 /// Mirrors DayFlow's day-file writes into the GitHub repo via the Contents API, so the
@@ -77,9 +85,25 @@ final class GitHubSync {
 
     func enqueueDaily(path: String, date: Date, plan: DaySchedule,
                       actual: DaySchedule, categories: [TimeCategory], message: String) {
+        // Preserve any pending health block for the same daily file — they share a path
+        // but write to disjoint markers, so one must not evict the other from the outbox.
+        let pendingHealth = outbox.first { $0.path == path }?.healthSnapshot
         outbox.removeAll { $0.path == path }
         let snapshot = DailyScheduleSnapshot(date: date, plan: plan, actual: actual, categories: categories)
-        outbox.append(ScheduleSyncOp(path: path, content: "", message: message, dailySnapshot: snapshot))
+        outbox.append(ScheduleSyncOp(path: path, content: "", message: message,
+                                     dailySnapshot: snapshot, healthSnapshot: pendingHealth))
+        persistOutbox()
+        scheduleFlush()
+    }
+
+    func enqueueDailyHealth(path: String, date: Date, snapshot: HealthSnapshot, message: String) {
+        let existing = outbox.first { $0.path == path }
+        outbox.removeAll { $0.path == path }
+        outbox.append(ScheduleSyncOp(path: path,
+                                     content: existing?.content ?? "",
+                                     message: message,
+                                     dailySnapshot: existing?.dailySnapshot,
+                                     healthSnapshot: DailyHealthSnapshot(date: date, snapshot: snapshot)))
         persistOutbox()
         scheduleFlush()
     }
@@ -110,14 +134,26 @@ final class GitHubSync {
             for op in ops {
                 do {
                     try await client.mutateFile(path: op.path, message: op.message) { current in
-                        guard let daily = op.dailySnapshot else { return op.content }
-                        return ScheduleMarkdown.upsertDailySection(
-                            current: current,
-                            date: daily.date,
-                            plan: daily.plan,
-                            actual: daily.actual,
-                            categories: daily.categories
-                        )
+                        // Plain whole-file write when neither section snapshot is present.
+                        if op.dailySnapshot == nil, op.healthSnapshot == nil { return op.content }
+                        var result: String? = current
+                        if let daily = op.dailySnapshot {
+                            result = ScheduleMarkdown.upsertDailySection(
+                                current: result,
+                                date: daily.date,
+                                plan: daily.plan,
+                                actual: daily.actual,
+                                categories: daily.categories
+                            )
+                        }
+                        if let health = op.healthSnapshot {
+                            result = ScheduleMarkdown.upsertHealthSection(
+                                current: result,
+                                date: health.date,
+                                snapshot: health.snapshot
+                            )
+                        }
+                        return result ?? op.content
                     }
                     remaining.removeAll { $0.id == op.id }
                 } catch {

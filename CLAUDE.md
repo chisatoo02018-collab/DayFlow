@@ -24,22 +24,26 @@ When adding or removing Swift files, run `xcodegen generate` before building.
 
 ## Architecture
 
-- `DayFlow/Services/` — `CalendarService`, `ReminderService` (`@Observable`, EventKit), `ScheduleStore`
+- `DayFlow/Services/` — `CalendarService`, `ReminderService` (`@Observable`, EventKit), `ScheduleStore`, `HealthService`（HealthKit読み取り: 歩数/心拍/睡眠/消費kcal/運動。睡眠・運動の区間取得も）, `HealthBackgroundSync`（HKObserverQuery+バックグラウンド配信でアプリ非起動時もdaily note更新）
 - `DayFlow/Services/Obsidian/` — Obsidian連携（VoiceDrop方式を移植）: `KeychainStore`, `GitHubClient`, `GitHubSync`, `VaultWriter`, `ScheduleMarkdown`
 - `DayFlow/Models/` — `CalendarEvent`, `ReminderItem`, `TimeCategory`, `TimeBlock`, `DaySchedule`
-- `DayFlow/Views/` — `ReviewHomeView`, `TimeScheduleView`, `InsightsView`, `MainTabView`, `SettingsView`（旧Dashboard/Month/Yearは互換用に残存）
+- `DayFlow/Views/` — `ReviewHomeView`（今日タブ）, `TimeScheduleView`（記録タブ）, `InsightsView`（分析タブ）, `MainTabView`, `SettingsView`, `HealthSection`（Apple Watchヘルス表示、ReviewHomeViewに埋め込み）（旧Month/Yearは互換用に残存。旧DashboardViewは非参照の死蔵だったため2026-07-13に削除）
 - `DayFlow/Views/Components/` — `NewItemSheet`, `DayDetailSheet`, `EventRow`, `ReminderRow`, `SectionHeader`, `TimeWheelView`, `CategoryEditorSheet`
 - `DayFlowWidget/` — Widget extension (TodayWidget, StatsWidget, shared `WidgetDataProvider`)
 
 ### 時間割（Time-schedule）feature
 
 - **タブ**: MainTabView は「今日・記録・分析」の3タブ。時間割エディタは「記録」に配置。
-- **現在のプロダクト軸**: 「昨日の実績を短時間で振り返り、今日の予定を組み直す」。タブは「今日・記録・分析」の3本。今日タブから昨日実績／今日予定へ直接遷移し、分析はイベント件数ではなく時間ポートフォリオを表示する。
+- **現在のプロダクト軸**: 「昨日の実績を短時間で振り返り、今日の予定を組み直し、明日を仕込む」。タブは「今日・記録・分析」の3本。今日タブは**昨日・今日・明日の3日カード**(`DayCard`)で、各カードから対応する日の編集(昨日=実績/今日・明日=予定)へ直接遷移する。明日カード/DateNavigatorの明日ボタンはカレンダー取り込み→予定編集への高速導線。分析はイベント件数ではなく時間ポートフォリオを表示する。
+- **予定→実績の複製**: `ScheduleStore.copySchedule`を`DuplicatePlanCard`(記録タブ・実績かつ予定あり・実績空の時だけ表示)で配線。「予定をコピーして差分だけ直す」ワークフロー。
 - **予定の自動生成**: 今日タブから時刻付きカレンダーイベントを仕事カテゴリとして時間割へ取り込める。既存の予定は上書きしない。
 - **予定→実績**: 同日の予定がある場合、実績編集画面から複製して差分だけ修正できる。
 - **閲覧/編集モード**: 初期状態は閲覧モードで、リングへのタップやドラッグでは変更されない。「編集する」を明示的に押したときだけ塗り替え可能。
 - **精密編集**: 編集モードで塗った区間をタップすると開始・終了につまみを表示。リング上のドラッグまたは編集カードの±ボタンで5分単位に調整でき、区間削除にも対応。縦スクロールとの誤認を避けるため、塗りは円周方向のドラッグだけを受け付ける。
 - **データ出所**: `TimeBlock.source`（manual/calendar/healthKit/imported）と`isUserModified`を後方互換つきで保持。将来の自動記録と手動修正のUI分岐に利用する。
+- **主カテゴリ+タグ（重複活動）**: `TimeBlock.tags: [String]`で1区間に副次カテゴリを複数付与できる（例: 移動(主)＋運動(タグ)）。リングは主カテゴリで着色、タグは内側の細い輪で描画。編集は区間選択時の「兼ねている活動」チップ。`TimeGrid`は主スロット`[String?]`とタグスロット`[Set<String>]`を並行編集し、blocks(from:tagSlots:)で主orタグ集合の境界ごとに分割。**設計思想**: 客観的センサー事実(重なる)を主観的会計リング(重なり不可の分割)に上書きで混ぜない。センサーはタグとして乗せるか空き時間だけ埋める。
+- **HealthKit→実績リング**: 設定「睡眠を実績リングの正とする」「運動を実績リングに反映」で、実績を開くたび`.task`で自動反映。睡眠(`sleepIntervals`)は主カテゴリ睡眠を置換(手動の他カテゴリは上書きしない・空き時間のみ)、運動(`exerciseIntervals`=appleExerciseTime間隔)は空きは主カテゴリ運動・重なりは運動タグ。メニューから手動取込も可。
+- **バックグラウンド同期**: `HealthBackgroundSync`がHKObserverQuery+enableBackgroundDelivery(.hourly)を登録。Watch sync時にiOSがアプリをバックグラウンド起動しdaily noteの`## ヘルス`を更新+GitHub push。リングの睡眠/運動反映はアプリ前面時のみ。healthkit.background-delivery entitlement必要。
 - **日付選択**: 昨日・今日を主要ショートカットとして常時表示。任意日はカレンダーボタンのグラフィカルDatePickerから選ぶ。
 - **予定パターン**: 現在の予定リングを「仕事の日」「習い事の日」などの名前で永続保存し、別の日へ呼び出せる。`schedule_templates.json`に保存。
 - **スクロール共存**: リングの操作ヒット領域はドーナツ形の円周だけ。中央と外側の上下スワイプは親ScrollViewへ渡す。

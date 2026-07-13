@@ -4,16 +4,20 @@ struct ReviewHomeView: View {
     @Environment(CalendarService.self) private var calendarService
     @Environment(ReminderService.self) private var reminderService
     @Environment(ScheduleStore.self) private var store
+    @Environment(HealthService.self) private var healthService
+    @Environment(VaultWriter.self) private var vaultWriter
 
     @Binding var selectedTab: AppTab
     @Binding var recorderDate: Date
     @Binding var recorderKind: ScheduleKind
-    @State private var isImporting = false
+    @State private var preparingDay: Date?
+    @State private var healthSyncMessage: String?
+    @State private var showHealthSyncAlert = false
 
-    private var today: Date { Calendar.current.startOfDay(for: Date()) }
-    private var yesterday: Date {
-        Calendar.current.date(byAdding: .day, value: -1, to: today) ?? today
-    }
+    private let calendar = Calendar.current
+    private var today: Date { calendar.startOfDay(for: Date()) }
+    private var yesterday: Date { calendar.date(byAdding: .day, value: -1, to: today) ?? today }
+    private var tomorrow: Date { calendar.date(byAdding: .day, value: 1, to: today) ?? today }
 
     var body: some View {
         NavigationStack {
@@ -21,32 +25,41 @@ struct ReviewHomeView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     TodayHero(yesterdayRecorded: store.hasSchedule(date: yesterday, kind: .actual))
 
-                    ReviewStepCard(
-                        number: 1,
-                        eyebrow: "昨日を閉じる",
-                        title: store.hasSchedule(date: yesterday, kind: .actual) ? "振り返りは完了" : "昨日の実績を記録",
-                        detail: store.hasSchedule(date: yesterday, kind: .actual)
-                            ? summary(date: yesterday, kind: .actual)
-                            : "予定を複製すれば、差分だけ直して短時間で終えられます。",
-                        systemImage: store.hasSchedule(date: yesterday, kind: .actual) ? "checkmark.circle.fill" : "clock.arrow.circlepath",
-                        tint: store.hasSchedule(date: yesterday, kind: .actual) ? .green : .indigo,
-                        actionTitle: store.hasSchedule(date: yesterday, kind: .actual) ? "確認する" : "記録する",
-                        action: openYesterday
-                    )
-
-                    ReviewStepCard(
-                        number: 2,
-                        eyebrow: "今日を組み立てる",
-                        title: store.hasSchedule(date: today, kind: .plan) ? "今日の予定は準備済み" : "カレンダーから予定を作成",
-                        detail: todayPlanDetail,
-                        systemImage: "calendar.badge.clock",
-                        tint: .blue,
-                        actionTitle: store.hasSchedule(date: today, kind: .plan) ? "予定を調整" : "予定を作る",
-                        isLoading: isImporting,
-                        action: prepareToday
-                    )
+                    VStack(spacing: 12) {
+                        DayCard(
+                            label: "昨日", date: yesterday, kindLabel: "実績",
+                            recorded: store.hasSchedule(date: yesterday, kind: .actual),
+                            detail: store.hasSchedule(date: yesterday, kind: .actual)
+                                ? summary(date: yesterday, kind: .actual)
+                                : "リングをなぞって記録。予定があれば編集画面から複製できます。",
+                            systemImage: "clock.arrow.circlepath", tint: .indigo,
+                            action: { open(day: yesterday, kind: .actual) }
+                        )
+                        DayCard(
+                            label: "今日", date: today, kindLabel: "予定",
+                            recorded: store.hasSchedule(date: today, kind: .plan),
+                            detail: planDetail(for: today),
+                            systemImage: "sun.max.fill", tint: .blue,
+                            isLoading: preparingDay == today,
+                            action: { prepare(day: today) }
+                        )
+                        DayCard(
+                            label: "明日", date: tomorrow, kindLabel: "予定",
+                            recorded: store.hasSchedule(date: tomorrow, kind: .plan),
+                            detail: planDetail(for: tomorrow),
+                            systemImage: "moon.stars.fill", tint: .purple,
+                            isLoading: preparingDay == tomorrow,
+                            action: { prepare(day: tomorrow) }
+                        )
+                    }
 
                     TodayAgenda(events: calendarService.events, reminders: reminderService.reminders)
+
+                    HealthSection(
+                        snapshot: healthService.snapshot,
+                        isAvailable: healthService.isAvailable,
+                        onSync: syncHealthManually
+                    )
                 }
                 .padding()
             }
@@ -55,13 +68,25 @@ struct ReviewHomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await loadToday() }
             .task { await requestAccessAndLoad() }
+            .alert("Obsidian記録", isPresented: $showHealthSyncAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(healthSyncMessage ?? "")
+            }
         }
     }
 
-    private var todayPlanDetail: String {
-        if store.hasSchedule(date: today, kind: .plan) { return summary(date: today, kind: .plan) }
-        let count = calendarService.events.filter { !$0.isAllDay }.count
-        return count == 0 ? "時刻付きの予定はありません。リングから自由に計画できます。" : "時刻付きの予定 \(count)件を時間割へ取り込みます。"
+    private func syncHealthManually() {
+        vaultWriter.writeHealth(date: Date(), snapshot: healthService.snapshot)
+        healthSyncMessage = vaultWriter.isConfigured
+            ? "今日のヘルスをデイリーノートの『## ヘルス』に記録しました。"
+            : "先に記録タブの設定でVaultまたはGitHubミラーを設定してください。"
+        showHealthSyncAlert = true
+    }
+
+    private func planDetail(for day: Date) -> String {
+        if store.hasSchedule(date: day, kind: .plan) { return summary(date: day, kind: .plan) }
+        return "カレンダーの予定を取り込んで、リングで仕上げます。"
     }
 
     private func summary(date: Date, kind: ScheduleKind) -> String {
@@ -70,40 +95,62 @@ struct ReviewHomeView: View {
         return "\(minutes / 60)時間\(remainder)を割り当て済み"
     }
 
-    private func openYesterday() {
-        recorderDate = yesterday
-        recorderKind = .actual
+    private func open(day: Date, kind: ScheduleKind) {
+        recorderDate = day
+        recorderKind = kind
         selectedTab = .record
     }
 
-    private func prepareToday() {
-        recorderDate = today
+    /// Quick-entry for a plan day (今日/明日): if the plan is empty, seed it from that day's
+    /// calendar events, then jump to the editor. Already-built days just open.
+    private func prepare(day: Date) {
+        recorderDate = day
         recorderKind = .plan
-        guard !store.hasSchedule(date: today, kind: .plan) else { selectedTab = .record; return }
-        isImporting = true
+        guard !store.hasSchedule(date: day, kind: .plan) else { selectedTab = .record; return }
+        preparingDay = day
+        Task {
+            let end = calendar.date(byAdding: .day, value: 1, to: day) ?? day
+            let events = await calendarService.fetchEvents(from: day, to: end)
+            store.save(DaySchedule(date: day, kind: .plan, blocks: planBlocks(from: events, day: day)))
+            preparingDay = nil
+            selectedTab = .record
+        }
+    }
+
+    /// Time-boxed calendar events → a starting `work` plan for `day` (all-day events skipped).
+    private func planBlocks(from events: [CalendarEvent], day: Date) -> [TimeBlock] {
         var slots = [String?](repeating: nil, count: slotsPerDay)
-        for event in calendarService.events where !event.isAllDay {
-            let start = max(0, Calendar.current.dateComponents([.minute], from: today, to: event.startDate).minute ?? 0)
-            let end = min(1440, Calendar.current.dateComponents([.minute], from: today, to: event.endDate).minute ?? 0)
+        for event in events where !event.isAllDay {
+            let start = max(0, calendar.dateComponents([.minute], from: day, to: event.startDate).minute ?? 0)
+            let end = min(1440, calendar.dateComponents([.minute], from: day, to: event.endDate).minute ?? 0)
             guard start < end else { continue }
             for index in max(0, start / slotMinutes)..<min(slotsPerDay, Int(ceil(Double(end) / Double(slotMinutes)))) {
                 slots[index] = "work"
             }
         }
-        store.save(DaySchedule(date: today, kind: .plan,
-                               blocks: TimeGrid.blocks(from: slots, source: .calendar)))
-        isImporting = false
-        selectedTab = .record
+        return TimeGrid.blocks(from: slots, source: .calendar)
     }
 
     private func requestAccessAndLoad() async {
         await calendarService.requestAccess()
         await reminderService.requestAccess()
+        await healthService.requestAccess()
+        HealthBackgroundSync.shared.start()   // enable background delivery now that access is granted
+        syncHealthToVault()
     }
 
     private func loadToday() async {
         await calendarService.fetchTodayEvents()
         await reminderService.fetchReminders()
+        await healthService.refresh()
+        syncHealthToVault()
+    }
+
+    /// Mirror the fetched metrics into today's Daily note. Only when there's real data,
+    /// so an unauthorized or watch-less run never writes an empty block or spins up a commit.
+    private func syncHealthToVault() {
+        guard healthService.snapshot.hasAnyData else { return }
+        vaultWriter.writeHealth(date: Date(), snapshot: healthService.snapshot)
     }
 }
 
@@ -126,42 +173,60 @@ private struct TodayHero: View {
     }
 }
 
-private struct ReviewStepCard: View {
-    let number: Int
-    let eyebrow: String
-    let title: String
+/// One row in the 昨日・今日・明日 strip. Whole card is tappable — jumps to that day's
+/// editor (seeding a plan first for empty 今日/明日). Shows a check when already recorded.
+private struct DayCard: View {
+    let label: String
+    let date: Date
+    let kindLabel: String
+    let recorded: Bool
     let detail: String
     let systemImage: String
     let tint: Color
-    let actionTitle: String
     var isLoading = false
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
+        Button(action: action) {
+            HStack(spacing: 12) {
                 Image(systemName: systemImage)
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundStyle(tint)
-                    .frame(width: 34, height: 34)
-                    .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                    .frame(width: 40, height: 40)
+                    .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 11))
+
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("STEP \(number) · \(eyebrow)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(tint)
-                    Text(title).font(.headline)
-                    Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(label).font(.subheadline.weight(.bold))
+                        Text(date, format: .dateTime.month().day().weekday(.abbreviated))
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(kindLabel)
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(tint)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(tint.opacity(0.14), in: Capsule())
+                    }
+                    Text(detail)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(2).multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 4)
+
+                if isLoading {
+                    ProgressView()
+                } else if recorded {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                } else {
+                    Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.tertiary)
                 }
             }
-            Button(actionTitle, action: action)
-                .buttonStyle(.borderedProminent)
-                .tint(tint)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .disabled(isLoading)
+            .padding()
+            .background(.background, in: RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
         }
-        .padding()
-        .background(.background, in: RoundedRectangle(cornerRadius: 18))
-        .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
+        .buttonStyle(.plain)
+        .disabled(isLoading)
     }
 }
 
