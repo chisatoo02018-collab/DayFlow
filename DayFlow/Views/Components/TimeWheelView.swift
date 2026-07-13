@@ -20,6 +20,7 @@ struct SelectedSlotRange: Equatable {
 struct TimeWheelView: View {
     @Binding var slots: [String?]
     @Binding var selection: SelectedSlotRange?
+    let isEditing: Bool
     /// nil id ("消しゴム") erases; otherwise the category being painted.
     let activeCategoryID: String?
     /// Resolves a slot's category id to a color for drawing.
@@ -38,22 +39,24 @@ struct TimeWheelView: View {
             Canvas { ctx, size in
                 draw(in: &ctx, size: size)
             }
-            RingHitShape()
-                .fill(.clear)
-                .contentShape(RingHitShape())
-                .gesture(
-                    SpatialTapGesture()
-                        .onEnded { value in
-                            guard let slot = slotIndex(for: value.location) else { return }
-                            selectBlock(containing: slot)
-                        }
-                )
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 8)
-                        .onChanged(handleDrag)
-                        .onEnded(handleDragEnd)
-                )
-            if let selection {
+            if isEditing {
+                RingHitShape()
+                    .fill(.clear)
+                    .contentShape(RingHitShape())
+                    .gesture(
+                        SpatialTapGesture()
+                            .onEnded { value in
+                                guard let slot = slotIndex(for: value.location) else { return }
+                                selectBlock(containing: slot)
+                            }
+                    )
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 8)
+                            .onChanged(handleDrag)
+                            .onEnded(handleDragEnd)
+                    )
+            }
+            if isEditing, let selection {
                 RangeHandles(
                     selection: Binding(get: { selection }, set: { self.selection = $0 }),
                     slots: $slots,
@@ -231,7 +234,7 @@ struct TimeWheelView: View {
             let p = CGPoint(x: center.x + cos(a) * r, y: center.y + sin(a) * r)
             let resolved = ctx.resolve(
                 Text("\(hour)")
-                    .font(.system(size: hour % 6 == 0 ? 8 : 6.5, weight: hour % 6 == 0 ? .bold : .medium))
+                    .font(.system(size: 7, weight: .semibold))
                     .foregroundColor(.secondary)
             )
             ctx.draw(resolved, at: p)

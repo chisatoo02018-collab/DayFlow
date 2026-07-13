@@ -14,6 +14,8 @@ struct TimeScheduleView: View {
     @State private var slots = [String?](repeating: nil, count: slotsPerDay)
     @State private var selectedRange: SelectedSlotRange?
     @State private var presentedSheet: EditorSheet?
+    @State private var isEditing = false
+    @State private var showSyncConfirmation = false
 
     init(date: Date = Date(), kind: ScheduleKind = .plan) {
         _date = State(initialValue: Calendar.current.startOfDay(for: date))
@@ -31,8 +33,13 @@ struct TimeScheduleView: View {
                         onToday: selectToday,
                         onCalendar: { presentedSheet = .date }
                     )
+                    EditingModeControl(
+                        isEditing: isEditing,
+                        onStart: { isEditing = true },
+                        onDone: finishEditing
+                    )
                     wheel
-                    if let selectedRange {
+                    if isEditing, let selectedRange {
                         TimeRangeEditor(
                             selection: selectedRange,
                             category: store.category(id: selectedRange.categoryID),
@@ -41,13 +48,15 @@ struct TimeScheduleView: View {
                             onDelete: deleteSelectedRange,
                             onDone: { self.selectedRange = nil }
                         )
-                    } else {
+                    } else if isEditing {
                         Text("塗った区間をタップすると、開始・終了を細かく調整できます")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     categoryStrip
+                        .disabled(!isEditing)
+                        .opacity(isEditing ? 1 : 0.45)
                     if comparisonMinutes > 0 {
                         ComparisonCard(difference: assignedMinutes - comparisonMinutes, kind: kind)
                     }
@@ -62,6 +71,8 @@ struct TimeScheduleView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("予定パターン", systemImage: "square.stack.3d.up") { presentedSheet = .templates }
+                        Button("Obsidianへ同期", systemImage: "arrow.triangle.2.circlepath") { manualSync() }
+                            .disabled(!vault.isConfigured)
                         Button("設定", systemImage: "gearshape") { presentedSheet = .settings }
                     } label: { Image(systemName: "ellipsis.circle") }
                 }
@@ -87,6 +98,11 @@ struct TimeScheduleView: View {
                     ScheduleDatePickerSheet(date: $date)
                 }
             }
+            .alert("Obsidianへ同期しました", isPresented: $showSyncConfirmation) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("詳細な時間割とデイリーノートの DayFlow セクションを更新しました。")
+            }
         }
         .onAppear(perform: reload)
         .onChange(of: date) { _, _ in reload() }
@@ -98,6 +114,7 @@ struct TimeScheduleView: View {
     private func reload() {
         slots = TimeGrid.slots(from: store.schedule(date: date, kind: kind).blocks)
         selectedRange = nil
+        isEditing = false
     }
 
     private func commit() {
@@ -137,6 +154,11 @@ struct TimeScheduleView: View {
         date = Calendar.current.date(byAdding: .day, value: -1, to: Calendar.current.startOfDay(for: Date())) ?? date
     }
 
+    private func finishEditing() {
+        selectedRange = nil
+        isEditing = false
+    }
+
     private func applyTemplate(_ template: ScheduleTemplate) {
         let blocks = template.blocks.map { block in
             var imported = block
@@ -160,6 +182,11 @@ struct TimeScheduleView: View {
                        plan: store.schedule(date: date, kind: .plan),
                        actual: store.schedule(date: date, kind: .actual),
                        categories: store.categories)
+    }
+
+    private func manualSync() {
+        mirrorToVault()
+        showSyncConfirmation = true
     }
 
     private func adjustSelectedStart(_ delta: Int) {
@@ -205,7 +232,8 @@ struct TimeScheduleView: View {
     private var wheel: some View {
         ZStack {
             TimeWheelView(slots: $slots, selection: $selectedRange,
-                          activeCategoryID: activeCategoryID, colorFor: colorFor, onCommit: commit)
+                          isEditing: isEditing, activeCategoryID: activeCategoryID,
+                          colorFor: colorFor, onCommit: commit)
             centerReadout
         }
         .frame(maxWidth: 360)
@@ -482,6 +510,32 @@ private struct DateShortcutButton: View {
                 .background(isSelected ? Color.blue : Color(.tertiarySystemFill), in: Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct EditingModeControl: View {
+    let isEditing: Bool
+    let onStart: () -> Void
+    let onDone: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: isEditing ? "pencil.tip.crop.circle.fill" : "hand.raised.fill")
+                .font(.title2)
+                .foregroundStyle(isEditing ? .orange : .secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isEditing ? "編集モード" : "閲覧モード")
+                    .font(.subheadline.weight(.bold))
+                Text(isEditing ? "リングを塗る・区間を調整できます" : "リングには触れても変更されません")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(isEditing ? "編集を完了" : "編集する", action: isEditing ? onDone : onStart)
+                .buttonStyle(.borderedProminent)
+                .tint(isEditing ? .orange : .blue)
+        }
+        .padding()
+        .background(.background, in: RoundedRectangle(cornerRadius: 16))
     }
 }
 

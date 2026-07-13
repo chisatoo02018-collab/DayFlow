@@ -75,7 +75,7 @@ struct SettingsView: View {
         } header: {
             Text("ローカルVault")
         } footer: {
-            Text("Obsidian Vaultのフォルダを選ぶと、時間割が `TimeLog/年/月/日付.md` に書き出されます。")
+            Text("Vaultフォルダを選ぶと、詳細な時間割を `TimeLog/年/月/日付.md` に保存し、デイリーノートの `## DayFlow` にその日の記録をプロットします。")
         }
     }
 

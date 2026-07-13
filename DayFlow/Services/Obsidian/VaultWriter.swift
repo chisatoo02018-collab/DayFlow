@@ -56,12 +56,22 @@ final class VaultWriter {
     func writeDay(date: Date, plan: DaySchedule, actual: DaySchedule, categories: [TimeCategory]) {
         let markdown = ScheduleMarkdown.render(date: date, plan: plan, actual: actual, categories: categories)
         let relPath = ScheduleMarkdown.vaultPath(for: date)
+        let dailyPath = ScheduleMarkdown.dailyPath(for: date)
 
         writeLocal(relPath: relPath, content: markdown)
+        upsertLocalDaily(relPath: dailyPath, date: date, plan: plan, actual: actual, categories: categories)
 
         if github.enabled {
             github.enqueue(path: relPath, content: markdown,
                            message: ScheduleMarkdown.commitMessage(for: date))
+            github.enqueueDaily(
+                path: dailyPath,
+                date: date,
+                plan: plan,
+                actual: actual,
+                categories: categories,
+                message: "DayFlow: Dailyへ時間記録を反映"
+            )
         }
     }
 
@@ -74,5 +84,22 @@ final class VaultWriter {
         let dir = fileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try? content.data(using: .utf8)?.write(to: fileURL, options: .atomic)
+    }
+
+    private func upsertLocalDaily(relPath: String, date: Date, plan: DaySchedule,
+                                  actual: DaySchedule, categories: [TimeCategory]) {
+        guard let vaultURL else { return }
+        guard vaultURL.startAccessingSecurityScopedResource() else { return }
+        defer { vaultURL.stopAccessingSecurityScopedResource() }
+
+        let fileURL = vaultURL.appendingPathComponent(relPath)
+        let current = try? String(contentsOf: fileURL, encoding: .utf8)
+        let updated = ScheduleMarkdown.upsertDailySection(
+            current: current, date: date, plan: plan, actual: actual, categories: categories
+        )
+        try? FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try? updated.data(using: .utf8)?.write(to: fileURL, options: .atomic)
     }
 }

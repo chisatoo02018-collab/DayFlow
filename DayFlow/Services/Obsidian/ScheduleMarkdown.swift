@@ -7,6 +7,9 @@ import Foundation
 /// Path convention: `TimeLog/YYYY/MM/YYYY-MM-DD.md` — a dedicated tree that never
 /// clobbers Daily notes, while a `[[YYYY-MM-DD]]` backlink keeps it discoverable.
 enum ScheduleMarkdown {
+    private static let dailyStart = "<!-- dayflow-daily:start -->"
+    private static let dailyEnd = "<!-- dayflow-daily:end -->"
+
     static func vaultPath(for date: Date) -> String {
         let day = Calendar.current.startOfDay(for: date)
         let y = DateFormatting.year.string(from: day)
@@ -17,6 +20,52 @@ enum ScheduleMarkdown {
 
     static func commitMessage(for date: Date) -> String {
         "DayFlow: 時間割 \(DateFormatting.dayKey.string(from: Calendar.current.startOfDay(for: date)))"
+    }
+
+    static func dailyPath(for date: Date) -> String {
+        let day = Calendar.current.startOfDay(for: date)
+        return "Daily/\(DateFormatting.year.string(from: day))/\(DateFormatting.month.string(from: day))/\(DateFormatting.dayKey.string(from: day)).md"
+    }
+
+    static func dailySkeleton(for date: Date) -> String {
+        let key = DateFormatting.dayKey.string(from: Calendar.current.startOfDay(for: date))
+        return "# \(key)\n"
+    }
+
+    static func upsertDailySection(current: String?, date: Date, plan: DaySchedule,
+                                   actual: DaySchedule, categories: [TimeCategory]) -> String {
+        var base = current ?? dailySkeleton(for: date)
+        let section = dailySection(date: date, plan: plan, actual: actual, categories: categories)
+        if let start = base.range(of: dailyStart),
+           let end = base.range(of: dailyEnd, range: start.upperBound..<base.endIndex) {
+            base.replaceSubrange(start.lowerBound..<end.upperBound, with: section)
+            return base
+        }
+        if !base.hasSuffix("\n") { base += "\n" }
+        return base + "\n" + section + "\n"
+    }
+
+    static func dailySection(date: Date, plan: DaySchedule, actual: DaySchedule,
+                             categories: [TimeCategory]) -> String {
+        let key = DateFormatting.dayKey.string(from: Calendar.current.startOfDay(for: date))
+        let lookup = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
+        var out = "\(dailyStart)\n## DayFlow\n\n"
+        out += "> [!summary] 時間の記録\n"
+        out += "> 予定 **\(hoursText(plan.assignedMinutes))** / 実績 **\(hoursText(actual.assignedMinutes))**\n\n"
+        let plotted = actual.blocks.isEmpty ? plan.blocks : actual.blocks
+        let label = actual.blocks.isEmpty ? "予定" : "実績"
+        if plotted.isEmpty {
+            out += "記録なし\n\n"
+        } else {
+            out += "**\(label)タイムライン**\n\n"
+            for block in plotted.sorted(by: { $0.start < $1.start }) {
+                out += "- `\(block.start.asClock)–\(block.end.asClock)` \(lookup[block.categoryID] ?? block.categoryID)\n"
+            }
+            out += "\n"
+        }
+        out += "詳細: [[TimeLog/\(DateFormatting.year.string(from: date))/\(DateFormatting.month.string(from: date))/\(key)|時間割を開く]]\n"
+        out += dailyEnd
+        return out
     }
 
     /// The full markdown body for `date`, combining both kinds. Empty rings render an
@@ -89,7 +138,7 @@ enum ScheduleMarkdown {
         return try? JSONDecoder().decode(Payload.self, from: data)
     }
 
-    private static func hoursText(_ minutes: Int) -> String {
+    static func hoursText(_ minutes: Int) -> String {
         let h = minutes / 60, m = minutes % 60
         if h == 0 { return "\(m)分" }
         if m == 0 { return "\(h)時間" }

@@ -9,13 +9,22 @@ struct ScheduleSyncOp: Codable, Identifiable {
     let path: String
     var content: String
     var message: String
+    var dailySnapshot: DailyScheduleSnapshot?
 
-    init(path: String, content: String, message: String) {
+    init(path: String, content: String, message: String, dailySnapshot: DailyScheduleSnapshot? = nil) {
         self.id = UUID()
         self.path = path
         self.content = content
         self.message = message
+        self.dailySnapshot = dailySnapshot
     }
+}
+
+struct DailyScheduleSnapshot: Codable {
+    var date: Date
+    var plan: DaySchedule
+    var actual: DaySchedule
+    var categories: [TimeCategory]
 }
 
 /// Mirrors DayFlow's day-file writes into the GitHub repo via the Contents API, so the
@@ -66,6 +75,15 @@ final class GitHubSync {
         scheduleFlush()
     }
 
+    func enqueueDaily(path: String, date: Date, plan: DaySchedule,
+                      actual: DaySchedule, categories: [TimeCategory], message: String) {
+        outbox.removeAll { $0.path == path }
+        let snapshot = DailyScheduleSnapshot(date: date, plan: plan, actual: actual, categories: categories)
+        outbox.append(ScheduleSyncOp(path: path, content: "", message: message, dailySnapshot: snapshot))
+        persistOutbox()
+        scheduleFlush()
+    }
+
     /// Debounced flush: a burst of saves (e.g. many drag releases while editing a day)
     /// coalesces into a single commit ~2s after the last edit, instead of one commit
     /// per drag. Call `flush()` directly for an immediate attempt (app launch/foreground).
@@ -91,7 +109,16 @@ final class GitHubSync {
             var failure: String?
             for op in ops {
                 do {
-                    try await client.mutateFile(path: op.path, message: op.message) { _ in op.content }
+                    try await client.mutateFile(path: op.path, message: op.message) { current in
+                        guard let daily = op.dailySnapshot else { return op.content }
+                        return ScheduleMarkdown.upsertDailySection(
+                            current: current,
+                            date: daily.date,
+                            plan: daily.plan,
+                            actual: daily.actual,
+                            categories: daily.categories
+                        )
+                    }
                     remaining.removeAll { $0.id == op.id }
                 } catch {
                     failure = error.localizedDescription
