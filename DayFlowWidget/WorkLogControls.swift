@@ -36,19 +36,18 @@ struct DepartureControl: ControlWidget {
     }
 }
 
-@available(iOSApplicationExtension 18.0, *)
+@available(iOSApplicationExtension 26.0, *)
 struct WakeTimeControl: ControlWidget {
     let kind = "com.chisatoo.dayflow.wake-time"
 
     var body: some ControlWidgetConfiguration {
         AppIntentControlConfiguration(kind: kind, intent: WakeTimeControlConfiguration.self) { configuration in
-            ControlWidgetButton(action: SetWakeTimeIntent(time: configuration.time ?? defaultControlTime(hour: 7))) {
+            ControlWidgetButton(action: ChooseWakeTimeIntent(configuredTime: configuration.time)) {
                 Label("起床予定", systemImage: "alarm.waves.left.and.right.fill")
             }
         }
         .displayName("起床予定")
-        .description("長押しで起床時刻を設定し、タップで睡眠予定とアラームを登録します。")
-        .promptsForUserConfiguration()
+        .description("タップ後に候補から起床時刻を選びます。長押しで任意時刻も登録できます。")
     }
 }
 

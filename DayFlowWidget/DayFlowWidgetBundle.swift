@@ -9,9 +9,11 @@ struct DayFlowWidgetBundle: WidgetBundle {
         if #available(iOSApplicationExtension 18.0, *) {
             ArrivalControl()
             DepartureControl()
-            WakeTimeControl()
             BedtimeControl()
             TodayRecordControl()
+        }
+        if #available(iOSApplicationExtension 26.0, *) {
+            WakeTimeControl()
         }
     }
 }
