@@ -66,6 +66,13 @@ When adding or removing Swift files, run `xcodegen generate` before building.
 
 ## TestFlight / App Store
 
+### DayFlowの実装完了ルール（2026-07-14）
+
+- ユーザーからDayFlowの機能追加・修正・改善を依頼された場合、明示的に「配布しない」「ローカルだけ」と指定されない限り、実装だけで終了しない。
+- 完了条件は、①シミュレータbuild、②実機archive、③`CURRENT_PROJECT_VERSION`を一意に更新、④TestFlightへアップロードして`Upload succeeded` / `EXPORT SUCCEEDED`を確認、⑤DayFlow `main`へcommit・push、のすべて。
+- ユーザーへ「実装済み」と報告する時点では、その変更を含むTestFlight Build番号とmain commitを併記する。
+- TestFlightアップロード後に追加変更した場合、その変更を含む新しいBuildを再度アップロードする。リポジトリ最新断面とTestFlight最新断面をずらしたまま完了扱いにしない。
+
 - `ExportOptions.plist` is at project root (not /tmp)
 - Bump `CURRENT_PROJECT_VERSION` in `project.yml` for each upload
 - App icon must be RGB, no alpha (1024x1024)
