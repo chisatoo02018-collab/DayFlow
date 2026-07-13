@@ -24,6 +24,7 @@ enum DayFlowSharedStore {
 
     enum Route: String {
         case todayActual
+        case wakeTimePicker
     }
 
     static func workRecord(on date: Date = Date()) -> WorkdayRecord? {

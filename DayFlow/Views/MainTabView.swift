@@ -6,6 +6,7 @@ struct MainTabView: View {
     @State private var selectedTab: AppTab = .today
     @State private var recorderDate = Date()
     @State private var recorderKind: ScheduleKind = .plan
+    @State private var presentedSheet: AppSheet?
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -32,7 +33,19 @@ struct MainTabView: View {
                 handlePendingRoute()
             }
         }
-        .task { handlePendingRoute() }
+        .sheet(item: $presentedSheet) { sheet in
+            switch sheet {
+            case .wakeTimePicker:
+                WakeTimePickerSheet()
+            }
+        }
+        .task {
+            if ProcessInfo.processInfo.arguments.contains("-showWakeTimePicker") {
+                presentedSheet = .wakeTimePicker
+            } else {
+                handlePendingRoute()
+            }
+        }
     }
 
     private func handlePendingRoute() {
@@ -42,8 +55,15 @@ struct MainTabView: View {
             recorderDate = Date()
             recorderKind = .actual
             selectedTab = .record
+        case .wakeTimePicker:
+            presentedSheet = .wakeTimePicker
         }
     }
+}
+
+private enum AppSheet: String, Identifiable {
+    case wakeTimePicker
+    var id: String { rawValue }
 }
 
 enum AppTab: Hashable {
