@@ -44,15 +44,19 @@ struct SetWakeTimeIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         DayFlowSharedStore.recordPlannedSleepEdge(time: time, isWakeTime: true)
+        return .result(dialog: try await Self.scheduleAlarm(for: time))
+    }
+
+    static func scheduleAlarm(for time: Date) async throws -> IntentDialog {
         guard #available(iOS 26.0, *) else {
-            return .result(dialog: "起床予定を記録しました。アラーム設定にはiOS 26以降が必要です。")
+            return "起床予定を記録しました。アラーム設定にはiOS 26以降が必要です。"
         }
         let manager = AlarmManager.shared
         if manager.authorizationState == .notDetermined {
             _ = try await manager.requestAuthorization()
         }
         guard manager.authorizationState == .authorized else {
-            return .result(dialog: "起床予定は記録しましたが、アラームの許可がオフです。設定アプリでDayFlowのアラームを許可してください。")
+            return "起床予定は記録しましたが、アラームの許可がオフです。設定アプリでDayFlowのアラームを許可してください。"
         }
 
         let next = Self.nextOccurrence(of: time)
@@ -67,7 +71,7 @@ struct SetWakeTimeIntent: AppIntent {
             schedule: .fixed(next), attributes: attributes
         )
         _ = try await manager.schedule(id: UUID(), configuration: configuration)
-        return .result(dialog: "\(next.formatted(date: .abbreviated, time: .shortened))に起床アラームを設定しました。")
+        return "\(next.formatted(date: .abbreviated, time: .shortened))に起床アラームを設定しました。"
     }
 
     private static func nextOccurrence(of time: Date) -> Date {

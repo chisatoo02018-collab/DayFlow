@@ -116,6 +116,61 @@ final class ScheduleStore {
         schedules = Self.load([String: DaySchedule].self, from: schedulesURL) ?? schedules
     }
 
+    /// Set the next planned wake edge using the app's canonical in-memory model.
+    /// A future clock time belongs to today; a time already passed belongs to tomorrow.
+    @discardableResult
+    func setPlannedWakeTime(_ time: Date, now: Date = Date()) -> Date {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.hour, .minute], from: time)
+        let hour = components.hour ?? 7
+        let minute = components.minute ?? 0
+        let candidate = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) ?? now
+        let occurrence = candidate > now
+            ? candidate
+            : (calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate)
+        let day = calendar.startOfDay(for: occurrence)
+        let wakeMinute = hour * 60 + minute
+
+        var schedule = schedule(date: day, kind: .plan)
+        var slots = [TimeBlock?](repeating: nil, count: slotsPerDay)
+        for block in schedule.blocks {
+            let lower = max(0, block.start / slotMinutes)
+            let upper = min(slotsPerDay, Int(ceil(Double(block.end) / Double(slotMinutes))))
+            guard lower < upper else { continue }
+            for index in lower..<upper { slots[index] = block }
+        }
+
+        // Remove every morning sleep slot, including layouts with a gap at midnight.
+        let morningLimit = min(slotsPerDay, max(12 * 60, wakeMinute) / slotMinutes)
+        for index in 0..<morningLimit where slots[index]?.categoryID == "sleep" {
+            slots[index] = nil
+        }
+
+        let wakeSlot = min(slotsPerDay, Int(ceil(Double(wakeMinute) / Double(slotMinutes))))
+        let sleep = TimeBlock(categoryID: "sleep", start: 0, end: wakeSlot * slotMinutes,
+                              source: .imported)
+        for index in 0..<wakeSlot where slots[index] == nil { slots[index] = sleep }
+
+        var blocks: [TimeBlock] = []
+        var index = 0
+        while index < slots.count {
+            guard let slot = slots[index] else { index += 1; continue }
+            var end = index + 1
+            while end < slots.count,
+                  slots[end]?.categoryID == slot.categoryID,
+                  slots[end]?.tags == slot.tags,
+                  slots[end]?.source == slot.source,
+                  slots[end]?.isUserModified == slot.isUserModified { end += 1 }
+            blocks.append(TimeBlock(categoryID: slot.categoryID, tags: slot.tags,
+                                    start: index * slotMinutes, end: end * slotMinutes,
+                                    source: slot.source, isUserModified: slot.isUserModified))
+            index = end
+        }
+        schedule.blocks = blocks
+        save(schedule)
+        return day
+    }
+
     @discardableResult
     func saveTemplate(name: String, blocks: [TimeBlock]) -> ScheduleTemplate {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

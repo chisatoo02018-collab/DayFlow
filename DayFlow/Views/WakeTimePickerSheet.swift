@@ -74,8 +74,8 @@ struct WakeTimePickerSheet: View {
         errorMessage = nil
         Task {
             do {
-                _ = try await SetWakeTimeIntent(time: time).perform()
-                scheduleStore.reloadFromSharedContainer()
+                scheduleStore.setPlannedWakeTime(time)
+                _ = try await SetWakeTimeIntent.scheduleAlarm(for: time)
                 dismiss()
             } catch {
                 errorMessage = "設定できませんでした。アラームの許可を確認して、もう一度お試しください。"
