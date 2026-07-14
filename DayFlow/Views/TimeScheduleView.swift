@@ -133,6 +133,7 @@ struct TimeScheduleView: View {
         .onAppear(perform: reload)
         .onChange(of: date) { _, _ in reload() }
         .onChange(of: kind) { _, _ in reload() }
+        .onChange(of: store.externalScheduleRevision) { _, _ in reload() }
         .task(id: DaySchedule.key(date: date, kind: kind)) {
             guard kind == .actual else { return }
             if health.importsSleepToRing { await importSleepFromHealth(auto: true) }

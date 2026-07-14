@@ -12,6 +12,10 @@ final class ScheduleStore {
     private(set) var categories: [TimeCategory]
     private(set) var templates: [ScheduleTemplate]
 
+    /// Advances when schedule data changes outside the schedule editor. Views that keep
+    /// a local slot representation use this to explicitly refresh their display.
+    private(set) var externalScheduleRevision = 0
+
     /// All saved schedules, keyed by `DaySchedule.key(date:kind:)`.
     private var schedules: [String: DaySchedule]
 
@@ -114,6 +118,7 @@ final class ScheduleStore {
     /// the app process was suspended.
     func reloadFromSharedContainer() {
         schedules = Self.load([String: DaySchedule].self, from: schedulesURL) ?? schedules
+        externalScheduleRevision &+= 1
     }
 
     /// Set the next planned wake edge using the app's canonical in-memory model.
@@ -168,6 +173,7 @@ final class ScheduleStore {
         }
         schedule.blocks = blocks
         save(schedule)
+        externalScheduleRevision &+= 1
         return day
     }
 
