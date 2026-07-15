@@ -52,12 +52,12 @@ When adding or removing Swift files, run `xcodegen generate` before building.
 - **カテゴリ** (`TimeCategory`): プリセット9種（睡眠/仕事/学習/食事/移動/運動/家事/娯楽/自由）＋カスタム追加可（`CategoryEditorSheet`）。idは安定slug、blocksとvault markdownはidで参照するので改名しても壊れない。
 - **予定/実績**: `ScheduleKind`。同じエディタで日付ステッパ＋セグメントで切替。「前日の実績を記録」も同じ画面で。
 - **保存**: `ScheduleStore` が Documents配下の `schedules.json` / `custom_categories.json` にJSON永続化（アプリ自身の source of truth）。ドラッグ終了ごとに `commit()`。
-- **Obsidian出力**: `commit()` から `VaultWriter.writeDay` で詳細ファイル `inputs/TimeLog/YYYY/MM/YYYY-MM-DD.md`（2026-07-16にルート`TimeLog/`からvault再編で移動） を全体再生成。同時に `Daily/YYYY/MM/YYYY-MM-DD.md` のマーカー付き `## DayFlow` セクションだけを冪等更新し、Voice Logなど既存本文を保持する。右上メニューから選択中の日を手動再同期できる。
+- **Obsidian出力**: `commit()` から `VaultWriter.writeDay` で詳細ファイル `inputs/timelog/YYYY/MM/YYYY-MM-DD.md`（2026-07-16にルート`TimeLog/`からvault再編で移動） を全体再生成。同時に `daily/YYYY/MM/YYYY-MM-DD.md` のマーカー付き `## DayFlow` セクションだけを冪等更新し、Voice Logなど既存本文を保持する。右上メニューから選択中の日を手動再同期できる。
 
 ### Obsidian連携（VoiceDrop方式の移植）
 
 - **ローカルVault**: 専用`TimeLog`はsecurity-scopedブックマークで選んだフォルダへ直接書き込む。共有DailyはGitHub同期OFF時だけローカル更新し、同期ON時はMac mini単一ライターに限定する（`VaultWriter`）。
-- **GitHubミラー** (`GitHubSync`): 専用`TimeLog`ファイルはContents APIで更新し、共有DailyのDayFlow/ヘルス管理ブロックは`system/ingest/dayflow/pending/`へ一意JSONとして送る。Mac miniの単一マージャーだけがDailyへ反映する。オフラインoutbox＋2秒デバウンスflush。トークンはKeychain（`com.chisatoo.dayflow.secrets`）。
+- **GitHubミラー** (`GitHubSync`): 専用`TimeLog`ファイルはContents APIで更新し、共有DailyのDayFlow/ヘルス管理ブロックは`inputs/system/ingest/dayflow/pending/`へ一意JSONとして送る。Mac miniの単一マージャーだけがDailyへ反映する。オフラインoutbox＋2秒デバウンスflush。トークンはKeychain（`com.chisatoo.dayflow.secrets`）。
 - 全て任意。未設定でも時間割エディタは完全動作（`writeDay` は `isConfigured` でガード）。
 
 ### SwiftUI落とし穴メモ

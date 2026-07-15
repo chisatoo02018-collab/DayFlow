@@ -138,7 +138,7 @@ struct SettingsView: View {
         } header: {
             Text("ローカルVault")
         } footer: {
-            Text("Vaultフォルダを選ぶと、詳細な時間割を `inputs/TimeLog/年/月/日付.md` に保存し、デイリーノートの `## DayFlow` にその日の記録をプロットします。")
+            Text("Vaultフォルダを選ぶと、詳細な時間割を `inputs/timelog/年/月/日付.md` に保存し、デイリーノートの `## DayFlow` にその日の記録をプロットします。")
         }
     }
 

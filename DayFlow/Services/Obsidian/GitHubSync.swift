@@ -213,7 +213,7 @@ final class GitHubSync {
         let data = try encoder.encode(payload)
         guard let json = String(data: data, encoding: .utf8) else { throw GitHubError.decoding }
         let queuePath = String(
-            format: "system/ingest/dayflow/pending/%020lld-%@.json",
+            format: "inputs/system/ingest/dayflow/pending/%020lld-%@.json",
             op.revision, op.id.uuidString
         )
         try await client.putFile(
