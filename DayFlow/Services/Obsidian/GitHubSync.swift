@@ -35,6 +35,13 @@ struct DailyHealthSnapshot: Codable {
     var snapshot: HealthSnapshot
 }
 
+private struct DayFlowQueuePayload: Codable {
+    let id: UUID
+    let path: String
+    let dailyBlock: String?
+    let healthBlock: String?
+}
+
 /// Mirrors DayFlow's day-file writes into the GitHub repo via the Contents API, so the
 /// canonical vault (and the Mac, which pulls) gets them without opening Obsidian on the
 /// phone. Local files remain the app's own source of truth; this is the propagation path.
@@ -133,27 +140,10 @@ final class GitHubSync {
             var failure: String?
             for op in ops {
                 do {
-                    try await client.mutateFile(path: op.path, message: op.message) { current in
-                        // Plain whole-file write when neither section snapshot is present.
-                        if op.dailySnapshot == nil, op.healthSnapshot == nil { return op.content }
-                        var result: String? = current
-                        if let daily = op.dailySnapshot {
-                            result = ScheduleMarkdown.upsertDailySection(
-                                current: result,
-                                date: daily.date,
-                                plan: daily.plan,
-                                actual: daily.actual,
-                                categories: daily.categories
-                            )
-                        }
-                        if let health = op.healthSnapshot {
-                            result = ScheduleMarkdown.upsertHealthSection(
-                                current: result,
-                                date: health.date,
-                                snapshot: health.snapshot
-                            )
-                        }
-                        return result ?? op.content
+                    if op.dailySnapshot != nil || op.healthSnapshot != nil {
+                        try await enqueueDailyMutation(op, using: client)
+                    } else {
+                        try await client.mutateFile(path: op.path, message: op.message) { _ in op.content }
                     }
                     remaining.removeAll { $0.id == op.id }
                 } catch {
@@ -166,6 +156,31 @@ final class GitHubSync {
             self.lastError = failure
             self.isFlushing = false
         }
+    }
+
+    /// Shared Daily notes are written only by the Mac mini. The phone creates one
+    /// immutable queue file containing complete marker-delimited blocks.
+    private func enqueueDailyMutation(_ op: ScheduleSyncOp, using client: GitHubClient) async throws {
+        let dailyBlock = op.dailySnapshot.map {
+            ScheduleMarkdown.dailySection(
+                date: $0.date, plan: $0.plan, actual: $0.actual, categories: $0.categories
+            )
+        }
+        let healthBlock = op.healthSnapshot.map { ScheduleMarkdown.healthSection(snapshot: $0.snapshot) }
+        let payload = DayFlowQueuePayload(
+            id: op.id, path: op.path, dailyBlock: dailyBlock, healthBlock: healthBlock
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(payload)
+        guard let json = String(data: data, encoding: .utf8) else { throw GitHubError.decoding }
+        let queuePath = "system/ingest/dayflow/pending/\(op.id.uuidString).json"
+        try await client.putFile(
+            path: queuePath,
+            content: json + "\n",
+            message: "dayflow: queue Daily blocks",
+            sha: nil
+        )
     }
 
     // MARK: - Persistence

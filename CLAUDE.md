@@ -57,7 +57,7 @@ When adding or removing Swift files, run `xcodegen generate` before building.
 ### Obsidian連携（VoiceDrop方式の移植）
 
 - **ローカルVault**: security-scopedブックマークで選んだフォルダに直接書き込み（`VaultWriter`）。
-- **GitHubミラー** (`GitHubSync`): iPhone単体で正典VaultのGitリポジトリへ Contents API 直コミット。オフラインoutbox（path単位で最新renderに置換）＋2秒デバウンスflush（ドラッグ連打を1コミットに集約）。有効化・owner/repo/branch・PATは `SettingsView`（時間割タブ右上の歯車）で設定。トークンはKeychain（`com.chisatoo.dayflow.secrets`）。
+- **GitHubミラー** (`GitHubSync`): 専用`TimeLog`ファイルはContents APIで更新し、共有DailyのDayFlow/ヘルス管理ブロックは`system/ingest/dayflow/pending/`へ一意JSONとして送る。Mac miniの単一マージャーだけがDailyへ反映する。オフラインoutbox＋2秒デバウンスflush。トークンはKeychain（`com.chisatoo.dayflow.secrets`）。
 - 全て任意。未設定でも時間割エディタは完全動作（`writeDay` は `isConfigured` でガード）。
 
 ### SwiftUI落とし穴メモ
