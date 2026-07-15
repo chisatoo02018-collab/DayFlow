@@ -4,7 +4,7 @@ import Foundation
 /// carries the exact block data in a hidden JSON comment so the app can read its own
 /// files back without guessing from the tables.
 ///
-/// Path convention: `TimeLog/YYYY/MM/YYYY-MM-DD.md` — a dedicated tree that never
+/// Path convention: `inputs/TimeLog/YYYY/MM/YYYY-MM-DD.md`（2026-07-16にルート`TimeLog/`から移動） — a dedicated tree that never
 /// clobbers Daily notes, while a `[[YYYY-MM-DD]]` backlink keeps it discoverable.
 enum ScheduleMarkdown {
     private static let dailyStart = "<!-- dayflow-daily:start -->"
@@ -17,7 +17,7 @@ enum ScheduleMarkdown {
         let y = DateFormatting.year.string(from: day)
         let m = DateFormatting.month.string(from: day)
         let key = DateFormatting.dayKey.string(from: day)
-        return "TimeLog/\(y)/\(m)/\(key).md"
+        return "inputs/TimeLog/\(y)/\(m)/\(key).md"
     }
 
     static func commitMessage(for date: Date) -> String {
@@ -103,7 +103,7 @@ enum ScheduleMarkdown {
             }
             out += "\n"
         }
-        out += "詳細: [[TimeLog/\(DateFormatting.year.string(from: date))/\(DateFormatting.month.string(from: date))/\(key)|時間割を開く]]\n"
+        out += "詳細: [[inputs/TimeLog/\(DateFormatting.year.string(from: date))/\(DateFormatting.month.string(from: date))/\(key)|時間割を開く]]\n"
         out += dailyEnd
         return out
     }
