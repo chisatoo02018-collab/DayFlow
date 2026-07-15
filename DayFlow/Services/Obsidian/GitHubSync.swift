@@ -6,20 +6,37 @@ import Observation
 /// the pending content — the vault only ever sees the latest render.
 struct ScheduleSyncOp: Codable, Identifiable {
     let id: UUID
+    let revision: Int64
     let path: String
     var content: String
     var message: String
     var dailySnapshot: DailyScheduleSnapshot?
     var healthSnapshot: DailyHealthSnapshot?
 
-    init(path: String, content: String, message: String,
+    init(path: String, revision: Int64, content: String, message: String,
          dailySnapshot: DailyScheduleSnapshot? = nil, healthSnapshot: DailyHealthSnapshot? = nil) {
         self.id = UUID()
+        self.revision = revision
         self.path = path
         self.content = content
         self.message = message
         self.dailySnapshot = dailySnapshot
         self.healthSnapshot = healthSnapshot
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, revision, path, content, message, dailySnapshot, healthSnapshot
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        revision = try values.decodeIfPresent(Int64.self, forKey: .revision) ?? 0
+        path = try values.decode(String.self, forKey: .path)
+        content = try values.decode(String.self, forKey: .content)
+        message = try values.decode(String.self, forKey: .message)
+        dailySnapshot = try values.decodeIfPresent(DailyScheduleSnapshot.self, forKey: .dailySnapshot)
+        healthSnapshot = try values.decodeIfPresent(DailyHealthSnapshot.self, forKey: .healthSnapshot)
     }
 }
 
@@ -37,6 +54,7 @@ struct DailyHealthSnapshot: Codable {
 
 private struct DayFlowQueuePayload: Codable {
     let id: UUID
+    let revision: Int64
     let path: String
     let dailyBlock: String?
     let healthBlock: String?
@@ -61,12 +79,15 @@ final class GitHubSync {
 
     private var isFlushing = false
     private var flushTask: Task<Void, Never>?
+    private var lastRevision: Int64
 
     init() {
         config = Self.loadConfig()
         enabled = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? false
         hasToken = KeychainStore.get(GitHubClient.tokenAccount)?.isEmpty == false
-        outbox = Self.loadOutbox()
+        let loadedOutbox = Self.loadOutbox()
+        outbox = loadedOutbox
+        lastRevision = loadedOutbox.map(\.revision).max() ?? 0
     }
 
     var isActive: Bool { enabled && hasToken && config.isComplete }
@@ -85,7 +106,9 @@ final class GitHubSync {
     /// path — a newer render supersedes an unsent older one.
     func enqueue(path: String, content: String, message: String) {
         outbox.removeAll { $0.path == path }
-        outbox.append(ScheduleSyncOp(path: path, content: content, message: message))
+        outbox.append(ScheduleSyncOp(
+            path: path, revision: nextRevision(), content: content, message: message
+        ))
         persistOutbox()
         scheduleFlush()
     }
@@ -97,7 +120,7 @@ final class GitHubSync {
         let pendingHealth = outbox.first { $0.path == path }?.healthSnapshot
         outbox.removeAll { $0.path == path }
         let snapshot = DailyScheduleSnapshot(date: date, plan: plan, actual: actual, categories: categories)
-        outbox.append(ScheduleSyncOp(path: path, content: "", message: message,
+        outbox.append(ScheduleSyncOp(path: path, revision: nextRevision(), content: "", message: message,
                                      dailySnapshot: snapshot, healthSnapshot: pendingHealth))
         persistOutbox()
         scheduleFlush()
@@ -107,6 +130,7 @@ final class GitHubSync {
         let existing = outbox.first { $0.path == path }
         outbox.removeAll { $0.path == path }
         outbox.append(ScheduleSyncOp(path: path,
+                                     revision: nextRevision(),
                                      content: existing?.content ?? "",
                                      message: message,
                                      dailySnapshot: existing?.dailySnapshot,
@@ -118,13 +142,21 @@ final class GitHubSync {
     /// Debounced flush: a burst of saves (e.g. many drag releases while editing a day)
     /// coalesces into a single commit ~2s after the last edit, instead of one commit
     /// per drag. Call `flush()` directly for an immediate attempt (app launch/foreground).
-    private func scheduleFlush() {
+    private func scheduleFlush(after delayNanoseconds: UInt64 = 2_000_000_000) {
         flushTask?.cancel()
         flushTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
             guard !Task.isCancelled else { return }
             self?.flush()
         }
+    }
+
+    /// Wall-clock microseconds plus an in-process monotonic guard. Persisted outbox
+    /// revisions seed the guard after relaunch, so newer renders always sort later.
+    private func nextRevision() -> Int64 {
+        let now = Int64(Date().timeIntervalSince1970 * 1_000_000)
+        lastRevision = max(now, lastRevision + 1)
+        return lastRevision
     }
 
     // MARK: - Flush
@@ -136,7 +168,6 @@ final class GitHubSync {
                                   tokenProvider: { KeychainStore.get(GitHubClient.tokenAccount) })
         let ops = outbox
         Task {
-            var remaining = ops
             var failure: String?
             for op in ops {
                 do {
@@ -145,16 +176,22 @@ final class GitHubSync {
                     } else {
                         try await client.mutateFile(path: op.path, message: op.message) { _ in op.content }
                     }
-                    remaining.removeAll { $0.id == op.id }
+                    // Remove only the exact operation that completed. A newer render
+                    // may have replaced it in `outbox` while this request was in flight.
+                    self.outbox.removeAll { $0.id == op.id }
+                    self.persistOutbox()
                 } catch {
                     failure = error.localizedDescription
                     break   // stop on first failure; keep it and the rest queued for retry
                 }
             }
-            self.outbox = remaining
-            self.persistOutbox()
             self.lastError = failure
             self.isFlushing = false
+            // A save made during the request may have scheduled a flush that returned
+            // while `isFlushing` was true. Ensure it gets another chance now.
+            if !self.outbox.isEmpty {
+                self.scheduleFlush(after: failure == nil ? 2_000_000_000 : 15_000_000_000)
+            }
         }
     }
 
@@ -168,13 +205,17 @@ final class GitHubSync {
         }
         let healthBlock = op.healthSnapshot.map { ScheduleMarkdown.healthSection(snapshot: $0.snapshot) }
         let payload = DayFlowQueuePayload(
-            id: op.id, path: op.path, dailyBlock: dailyBlock, healthBlock: healthBlock
+            id: op.id, revision: op.revision, path: op.path,
+            dailyBlock: dailyBlock, healthBlock: healthBlock
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(payload)
         guard let json = String(data: data, encoding: .utf8) else { throw GitHubError.decoding }
-        let queuePath = "system/ingest/dayflow/pending/\(op.id.uuidString).json"
+        let queuePath = String(
+            format: "system/ingest/dayflow/pending/%020lld-%@.json",
+            op.revision, op.id.uuidString
+        )
         try await client.putFile(
             path: queuePath,
             content: json + "\n",

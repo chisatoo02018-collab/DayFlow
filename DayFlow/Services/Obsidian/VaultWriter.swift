@@ -59,7 +59,14 @@ final class VaultWriter {
         let dailyPath = ScheduleMarkdown.dailyPath(for: date)
 
         writeLocal(relPath: relPath, content: markdown)
-        upsertLocalDaily(relPath: dailyPath, date: date, plan: plan, actual: actual, categories: categories)
+        // When GitHub propagation is enabled, the Mac mini is the sole shared-Daily
+        // writer. Keep only the dedicated TimeLog local mirror on the phone.
+        if !github.enabled {
+            upsertLocalDaily(
+                relPath: dailyPath, date: date, plan: plan,
+                actual: actual, categories: categories
+            )
+        }
 
         if github.enabled {
             github.enqueue(path: relPath, content: markdown,
@@ -80,7 +87,9 @@ final class VaultWriter {
     /// Daily file via disjoint markers. No-op when nothing is configured.
     func writeHealth(date: Date, snapshot: HealthSnapshot) {
         let dailyPath = ScheduleMarkdown.dailyPath(for: date)
-        upsertLocalDailyHealth(relPath: dailyPath, date: date, snapshot: snapshot)
+        if !github.enabled {
+            upsertLocalDailyHealth(relPath: dailyPath, date: date, snapshot: snapshot)
+        }
 
         if github.enabled {
             github.enqueueDailyHealth(
