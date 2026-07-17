@@ -5,6 +5,7 @@ struct ReviewHomeView: View {
     @Environment(ReminderService.self) private var reminderService
     @Environment(ScheduleStore.self) private var store
     @Environment(HealthService.self) private var healthService
+    @Environment(LifeEventService.self) private var lifeEventService
     @Environment(VaultWriter.self) private var vaultWriter
     @Environment(LocationService.self) private var locationService
     @Environment(PlaceStore.self) private var placeStore
@@ -101,6 +102,11 @@ struct ReviewHomeView: View {
                         isAvailable: healthService.isAvailable,
                         onSync: syncHealthManually
                     )
+
+                    DayEventsSection(
+                        events: lifeEventService.events,
+                        isLoading: lifeEventService.isLoading
+                    )
                 }
                 .padding()
             }
@@ -109,6 +115,7 @@ struct ReviewHomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await loadToday() }
             .task { await requestAccessAndLoad() }
+            .task { await lifeEventService.load(date: yesterday, vault: vaultWriter) }
             .alert("Obsidian記録", isPresented: $showHealthSyncAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -185,6 +192,7 @@ struct ReviewHomeView: View {
         await reminderService.fetchReminders()
         await healthService.refresh()
         syncHealthToVault()
+        await lifeEventService.load(date: yesterday, vault: vaultWriter, force: true)
     }
 
     /// Mirror the fetched metrics into today's Daily note. Only when there's real data,

@@ -19,6 +19,7 @@ struct DayFlowApp: App {
     @State private var scheduleStore = ScheduleStore()
     @State private var vaultWriter = VaultWriter()
     @State private var healthService = HealthService()
+    @State private var lifeEventService = LifeEventService()
     @State private var placeStore = PlaceStore()
     @State private var locationService: LocationService
 
@@ -36,6 +37,7 @@ struct DayFlowApp: App {
                 .environment(scheduleStore)
                 .environment(vaultWriter)
                 .environment(healthService)
+                .environment(lifeEventService)
                 .environment(placeStore)
                 .environment(locationService)
                 // Geofences must be (re)registered on every cold start, including the
