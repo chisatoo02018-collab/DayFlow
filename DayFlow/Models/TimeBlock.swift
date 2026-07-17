@@ -4,6 +4,9 @@ enum TimeBlockSource: String, Codable {
     case manual
     case calendar
     case healthKit
+    /// Derived from a geofence crossing (see `LocationService`). Like `healthKit`, only
+    /// ever fills empty slots — never overwrites what the user painted.
+    case location
     case imported
 }
 

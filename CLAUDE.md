@@ -24,7 +24,8 @@ When adding or removing Swift files, run `xcodegen generate` before building.
 
 ## Architecture
 
-- `DayFlow/Services/` — `CalendarService`, `ReminderService` (`@Observable`, EventKit), `ScheduleStore`, `HealthService`（HealthKit読み取り: 歩数/心拍/睡眠/消費kcal/運動。睡眠・運動の区間取得も）, `HealthBackgroundSync`（HKObserverQuery+バックグラウンド配信でアプリ非起動時もdaily note更新）
+- `DayFlow/Services/` — `CalendarService`, `ReminderService` (`@Observable`, EventKit), `ScheduleStore`, `HealthService`（HealthKit読み取り: 歩数/心拍/睡眠/消費kcal/運動。睡眠・運動の区間取得も）, `HealthBackgroundSync`（HKObserverQuery+バックグラウンド配信でアプリ非起動時もdaily note更新）, `LocationService`（Core Location region monitoringで自宅/職場の出入りを検知しLocationEventを永続化→日毎のstay/moving/awayセグメントへ変換。BGProcessingTaskは使わない=LifeLogの死因回避）, `LocationRingMapper`（セグメント→所在地リング色・実績リングの空きスロット補完）
+- `DayFlow/Models/Place.swift` — `Place`（自宅/職場/その他の座標・半径。ジオフェンス）と`PlaceStore`（永続化・座標はユーザー設定で端末内のみ）
 - `DayFlow/Services/Obsidian/` — Obsidian連携（VoiceDrop方式を移植）: `KeychainStore`, `GitHubClient`, `GitHubSync`, `VaultWriter`, `ScheduleMarkdown`
 - `DayFlow/Models/` — `CalendarEvent`, `ReminderItem`, `TimeCategory`, `TimeBlock`, `DaySchedule`
 - `DayFlow/Views/` — `ReviewHomeView`（今日タブ）, `TimeScheduleView`（記録タブ）, `InsightsView`（分析タブ）, `MainTabView`, `SettingsView`, `HealthSection`（Apple Watchヘルス表示、ReviewHomeViewに埋め込み）（旧Month/Yearは互換用に残存。旧DashboardViewは非参照の死蔵だったため2026-07-13に削除）
@@ -53,6 +54,15 @@ When adding or removing Swift files, run `xcodegen generate` before building.
 - **予定/実績**: `ScheduleKind`。同じエディタで日付ステッパ＋セグメントで切替。「前日の実績を記録」も同じ画面で。
 - **保存**: `ScheduleStore` が Documents配下の `schedules.json` / `custom_categories.json` にJSON永続化（アプリ自身の source of truth）。ドラッグ終了ごとに `commit()`。
 - **Obsidian出力**: `commit()` から `VaultWriter.writeDay` で詳細ファイル `inputs/timelog/YYYY/MM/YYYY-MM-DD.md`（2026-07-16にルート`TimeLog/`からvault再編で移動） を全体再生成。同時に `daily/YYYY/MM/YYYY-MM-DD.md` のマーカー付き `## DayFlow` セクションだけを冪等更新し、Voice Logなど既存本文を保持する。右上メニューから選択中の日を手動再同期できる。
+
+### 所在地（位置情報→リング/出社判定）feature（2026-07-18）
+
+- **拠点登録**: 設定「所在地」で自宅/職場を「現在地を設定」から登録（`Place`/`PlaceStore`、座標は端末内のみ・バイナリ非同梱）。ジオフェンス半径は既定200m。
+- **自動記録の仕組み**: `LocationService`が`CLLocationManager`のregion monitoring(enter/exit)で拠点の出入りを検知。**iOSがアプリ終了中でもジオフェンス越えで再起動するため確実**。`BGProcessingTask`は使わない（LifeLogを1日で死なせた原因）。「常に許可」が必要。
+- **所在地リング**: `TimeWheelView`に主リングの外側の細い輪を追加。自宅/職場/移動/外出を色分け（客観センサー事実。主観の実績リングとは混ぜない=CLAUDE.mdの設計思想に従う）。
+- **実績リングへの自動補完**: 設定トグルONかつ実績のとき、`LocationRingMapper`が**空きスロットだけ**を埋める。職場滞在→仕事、自宅↔職場の移動→移動。**自宅滞在は睡眠/家事/娯楽と曖昧なので塗らない**。手描き（manual等）は上書きせず、補完分は`source: .location`で区別。
+- **出社判定**: 今日タブ(`ReviewHomeView`)に出社/在宅と職場滞在時間のバナー。職場未登録なら非表示。
+- **セグメント化**: `segments(for:)`が日毎にstay(place)/moving(拠点間・180分以内)/away(それ以上)へ変換。日跨ぎの滞在は00:00からclampして表示。
 
 ### Obsidian連携（VoiceDrop方式の移植）
 

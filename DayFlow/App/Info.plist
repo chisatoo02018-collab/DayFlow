@@ -47,5 +47,9 @@
 	<string>DayFlow does not write to Health; this permission is only present to satisfy HealthKit requirements.</string>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>起床予定の時刻に、消音モードや集中モード中でも気づけるアラームを鳴らすために使用します。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>自宅や職場として登録する地点を、現在地から設定するために使用します。</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>登録した自宅・職場の出入りを検知して、出社や移動を自動で記録します。位置情報は端末内に保存され、常時追跡はしません。</string>
 </dict>
 </plist>

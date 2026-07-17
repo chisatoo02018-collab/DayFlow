@@ -9,12 +9,16 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Bindable var writer: VaultWriter
     @Bindable var health: HealthService
+    @Bindable var placeStore: PlaceStore
+    @Bindable var location: LocationService
     @Environment(\.dismiss) private var dismiss
 
     @State private var showFolderPicker = false
     @State private var tokenInput = ""
     @State private var isRequestingHealth = false
     @State private var healthSyncNote: String?
+    @State private var pendingKind: PlaceKind?
+    @State private var locationNote: String?
 
     var body: some View {
         @Bindable var sync = writer.github
@@ -22,6 +26,8 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 healthSection
+
+                locationSection
 
                 vaultSection
 
@@ -64,6 +70,82 @@ struct SettingsView: View {
                 if case .success(let url) = result { writer.selectVault(url) }
             }
         }
+    }
+
+    // MARK: - Location
+
+    @ViewBuilder
+    private var locationSection: some View {
+        Section {
+            if location.isAuthorizedAlways {
+                Label("常に許可済み — 出入りを自動記録します", systemImage: "location.fill")
+                    .font(.footnote).foregroundStyle(.green)
+            } else {
+                Button {
+                    location.requestAuthorization()
+                } label: {
+                    Label("位置情報を「常に許可」にする", systemImage: "location")
+                }
+                Text("バックグラウンドで自宅・職場の出入りを検知するには「常に許可」が必要です。現在地の登録だけなら使用中の許可でもできます。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+
+            ForEach(PlaceKind.allCases, id: \.self) { kind in
+                placeRow(kind)
+            }
+
+            if placeStore.isConfigured {
+                Toggle("出社・移動を実績リングに自動反映", isOn: $location.importsToRing)
+            }
+            if let note = locationNote {
+                Text(note).font(.footnote).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("所在地（自宅・職場）")
+        } footer: {
+            Text("自宅と職場を現在地から登録すると、その出入りを自動で記録します。所在地リングに色分け表示され、職場滞在は「仕事」、自宅↔職場の移動は「移動」として実績リングの空き時間だけを自動で埋めます（手描きは上書きしません）。座標は端末内に保存されます。")
+        }
+    }
+
+    @ViewBuilder
+    private func placeRow(_ kind: PlaceKind) -> some View {
+        let isSet = placeStore.places.contains { $0.kind == kind }
+        Button {
+            setCurrentLocation(as: kind)
+        } label: {
+            HStack {
+                Label(kind.label, systemImage: kind.symbol)
+                    .foregroundStyle(kind.color)
+                Spacer()
+                if pendingKind == kind {
+                    ProgressView()
+                } else {
+                    Text(isSet ? "設定済み・更新" : "現在地を設定")
+                        .font(.footnote)
+                        .foregroundStyle(isSet ? .secondary : Color.accentColor)
+                }
+            }
+        }
+        .disabled(pendingKind != nil)
+    }
+
+    /// Requests one location fix and stores it as the given place kind (home/office).
+    /// The place keeps the same geofence radius default; the user rarely needs to tune it.
+    private func setCurrentLocation(as kind: PlaceKind) {
+        pendingKind = kind
+        location.onCurrentLocation = { loc in
+            let place = Place(
+                id: placeStore.places.first { $0.kind == kind }?.id ?? UUID().uuidString,
+                name: kind.label, kind: kind,
+                latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude
+            )
+            placeStore.upsert(place)
+            location.refreshMonitoring()
+            pendingKind = nil
+            locationNote = "\(kind.label)を現在地に設定しました。"
+            location.onCurrentLocation = nil
+        }
+        location.requestCurrentLocation()
     }
 
     // MARK: - Health

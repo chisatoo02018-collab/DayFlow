@@ -19,6 +19,14 @@ struct DayFlowApp: App {
     @State private var scheduleStore = ScheduleStore()
     @State private var vaultWriter = VaultWriter()
     @State private var healthService = HealthService()
+    @State private var placeStore = PlaceStore()
+    @State private var locationService: LocationService
+
+    init() {
+        let store = PlaceStore()
+        _placeStore = State(initialValue: store)
+        _locationService = State(initialValue: LocationService(placeStore: store))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -28,6 +36,11 @@ struct DayFlowApp: App {
                 .environment(scheduleStore)
                 .environment(vaultWriter)
                 .environment(healthService)
+                .environment(placeStore)
+                .environment(locationService)
+                // Geofences must be (re)registered on every cold start, including the
+                // background relaunches iOS performs after a crossing.
+                .task { locationService.refreshMonitoring() }
         }
     }
 }

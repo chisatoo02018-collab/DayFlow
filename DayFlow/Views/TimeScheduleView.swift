@@ -7,6 +7,8 @@ struct TimeScheduleView: View {
     @Environment(ScheduleStore.self) private var store
     @Environment(VaultWriter.self) private var vault
     @Environment(HealthService.self) private var health
+    @Environment(LocationService.self) private var location
+    @Environment(PlaceStore.self) private var placeStore
 
     @State private var date = Calendar.current.startOfDay(for: Date())
     @State private var kind: ScheduleKind = .plan
@@ -14,6 +16,8 @@ struct TimeScheduleView: View {
     @State private var activeCategoryID: String? = TimeCategory.presets.first?.id
     @State private var slots = [String?](repeating: nil, count: slotsPerDay)
     @State private var tagSlots = [Set<String>](repeating: [], count: slotsPerDay)
+    /// Colours for the 所在地 ring — sensor record, not editable here.
+    @State private var locationSlots = [Color?](repeating: nil, count: slotsPerDay)
     @State private var selectedRange: SelectedSlotRange?
     @State private var presentedSheet: EditorSheet?
     @State private var isEditing = false
@@ -106,7 +110,8 @@ struct TimeScheduleView: View {
                         activeCategoryID = cat.id
                     }
                 case .settings:
-                    SettingsView(writer: vault, health: health)
+                    SettingsView(writer: vault, health: health,
+                                 placeStore: placeStore, location: location)
                 case .templates:
                     ScheduleTemplateSheet(
                         templates: store.templates,
@@ -138,7 +143,40 @@ struct TimeScheduleView: View {
             guard kind == .actual else { return }
             if health.importsSleepToRing { await importSleepFromHealth(auto: true) }
             if health.importsExerciseToRing { await importExerciseFromHealth(auto: true) }
+            applyLocation()
         }
+    }
+
+    // MARK: - Location (geofence → 所在地リング / 実績リング)
+
+    /// Refreshes the 所在地 ring for the shown day, and — only when the user opted in and
+    /// only on 実績 — fills empty activity slots with what the location unambiguously
+    /// implies (職場→仕事, 自宅↔職場の移動→移動). Never touches painted slots.
+    private func applyLocation() {
+        let segments = location.segments(for: date)
+        locationSlots = LocationRingMapper.locationSlots(from: segments)
+
+        guard kind == .actual, location.importsToRing, !segments.isEmpty else { return }
+
+        var sched = store.schedule(date: date, kind: .actual)
+        let occupied = TimeGrid.slots(from: sched.blocks)
+        let filled = LocationRingMapper.applyToActivitySlots(occupied, segments: segments)
+        guard filled != occupied else { return }   // nothing new to add — skip the vault write
+
+        // Append only the runs the location added, tagged with their provenance so the
+        // editor can tell auto-recorded time from what the user painted.
+        var i = 0
+        while i < slotsPerDay {
+            guard occupied[i] == nil, let cat = filled[i] else { i += 1; continue }
+            var j = i + 1
+            while j < slotsPerDay, occupied[j] == nil, filled[j] == cat { j += 1 }
+            sched.blocks.append(TimeBlock(categoryID: cat, start: i * slotMinutes,
+                                          end: j * slotMinutes, source: .location))
+            i = j
+        }
+        store.save(sched)
+        reload()
+        mirrorToVault()
     }
 
     // MARK: - Sleep import (HealthKit → 実績リング)
@@ -425,7 +463,8 @@ struct TimeScheduleView: View {
 
     private var wheel: some View {
         ZStack {
-            TimeWheelView(slots: $slots, tagSlots: tagSlots, selection: $selectedRange,
+            TimeWheelView(slots: $slots, tagSlots: tagSlots, locationSlots: locationSlots,
+                          selection: $selectedRange,
                           isEditing: isEditing, activeCategoryID: activeCategoryID,
                           colorFor: colorFor, onCommit: commit)
             centerReadout

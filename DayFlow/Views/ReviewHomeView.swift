@@ -6,6 +6,8 @@ struct ReviewHomeView: View {
     @Environment(ScheduleStore.self) private var store
     @Environment(HealthService.self) private var healthService
     @Environment(VaultWriter.self) private var vaultWriter
+    @Environment(LocationService.self) private var locationService
+    @Environment(PlaceStore.self) private var placeStore
 
     @Binding var selectedTab: AppTab
     @Binding var recorderDate: Date
@@ -19,11 +21,50 @@ struct ReviewHomeView: View {
     private var yesterday: Date { calendar.date(byAdding: .day, value: -1, to: today) ?? today }
     private var tomorrow: Date { calendar.date(byAdding: .day, value: 1, to: today) ?? today }
 
+    /// Today's attendance, derived from geofence stays. Only shown once an office is set.
+    private var attendanceBanner: some View {
+        let attended = locationService.didAttendOffice(on: today)
+        let minutes = locationService.officeMinutes(on: today)
+        let officeName = placeStore.office?.name ?? "職場"
+        return HStack(spacing: 12) {
+            Image(systemName: attended ? "building.2.fill" : "house.fill")
+                .font(.title3)
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(attended ? PlaceKind.office.color : PlaceKind.home.color)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(attended ? "出社" : "在宅・外出")
+                    .font(.subheadline.weight(.semibold))
+                Text(attended
+                     ? "\(officeName)・滞在 \(formatMinutes(minutes))"
+                     : "今日はまだ職場での記録がありません")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func formatMinutes(_ minutes: Int) -> String {
+        let h = minutes / 60, m = minutes % 60
+        if h > 0 && m > 0 { return "\(h)時間\(m)分" }
+        if h > 0 { return "\(h)時間" }
+        return "\(m)分"
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     TodayHero(yesterdayRecorded: store.hasSchedule(date: yesterday, kind: .actual))
+
+                    if placeStore.office != nil {
+                        attendanceBanner
+                    }
 
                     VStack(spacing: 12) {
                         DayCard(

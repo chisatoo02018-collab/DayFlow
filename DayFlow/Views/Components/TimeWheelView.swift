@@ -22,6 +22,10 @@ struct TimeWheelView: View {
     /// Per-slot secondary tags, drawn as a thin ring just inside the main arc. Read-only
     /// here; the parent edits tags via the range editor.
     var tagSlots: [Set<String>] = []
+    /// Per-slot colour for the 所在地 ring drawn *outside* the main arc (nil = unknown).
+    /// Objective sensor fact — kept visually separate from the subjective activity arc
+    /// rather than merged into it. Read-only.
+    var locationSlots: [Color?] = []
     @Binding var selection: SelectedSlotRange?
     let isEditing: Bool
     /// nil id ("消しゴム") erases; otherwise the category being painted.
@@ -184,12 +188,15 @@ struct TimeWheelView: View {
         let side = min(size.width, size.height)
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
         DispatchQueue.main.async { if wheelCenter != center { wheelCenter = center } }
-        let radius = side / 2 - thickness / 2 - 6
+        // The extra inset (vs. the arc's own half-thickness) reserves the outermost band
+        // for the 所在地 ring.
+        let radius = side / 2 - thickness / 2 - 12
         DispatchQueue.main.async { if wheelRadius != radius { wheelRadius = radius } }
 
         drawTrack(&ctx, center: center, radius: radius)
         drawSegments(&ctx, center: center, radius: radius)
         drawTagRing(&ctx, center: center, radius: radius)
+        drawLocationRing(&ctx, center: center, radius: radius)
         drawHourTicks(&ctx, center: center, radius: radius)
         drawHourLabels(&ctx, center: center, radius: radius)
     }
@@ -232,6 +239,28 @@ struct TimeWheelView: View {
                         startAngle: angle(forMinute: run * slotMinutes),
                         endAngle: angle(forMinute: end * slotMinutes), clockwise: false)
             ctx.stroke(path, with: .color(colorFor(tag)),
+                       style: StrokeStyle(lineWidth: 5, lineCap: .butt))
+            run = end
+        }
+    }
+
+    /// A thin ring just outside the main arc showing where the user physically was
+    /// (自宅/職場/移動/外出). It sits outside deliberately: it's the objective container of
+    /// the day, while the activity arc inside stays the user's own accounting of it.
+    private func drawLocationRing(_ ctx: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
+        guard !locationSlots.isEmpty else { return }
+        let ringRadius = radius + thickness / 2 + 5
+        var run = 0
+        while run < slotsPerDay {
+            guard run < locationSlots.count, let color = locationSlots[run] else { run += 1; continue }
+            var end = run + 1
+            while end < slotsPerDay, end < locationSlots.count,
+                  locationSlots[end] == color { end += 1 }
+            var path = Path()
+            path.addArc(center: center, radius: ringRadius,
+                        startAngle: angle(forMinute: run * slotMinutes),
+                        endAngle: angle(forMinute: end * slotMinutes), clockwise: false)
+            ctx.stroke(path, with: .color(color),
                        style: StrokeStyle(lineWidth: 5, lineCap: .butt))
             run = end
         }
