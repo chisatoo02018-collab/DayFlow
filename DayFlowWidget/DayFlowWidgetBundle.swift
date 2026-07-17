@@ -6,6 +6,7 @@ struct DayFlowWidgetBundle: WidgetBundle {
     var body: some Widget {
         TodayWidget()
         StatsWidget()
+        TypicalDayWidget()
         if #available(iOSApplicationExtension 18.0, *) {
             ArrivalControl()
             DepartureControl()

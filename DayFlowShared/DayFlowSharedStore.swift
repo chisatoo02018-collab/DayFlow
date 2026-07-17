@@ -249,6 +249,79 @@ enum DayFlowSharedStore {
         return blocks
     }
 
+    // MARK: - Typical day (widget summary)
+
+    /// One category's share of a typical day, averaged over the days that actually have a
+    /// recorded 実績.
+    struct CategoryAverage: Identifiable, Equatable {
+        var id: String
+        var name: String
+        var colorHex: String
+        var averageMinutes: Int
+    }
+
+    struct TypicalDay: Equatable {
+        var averages: [CategoryAverage]   // sorted, longest first
+        var daysWithData: Int
+        var officeDays: Int               // days a 仕事 block was recorded
+    }
+
+    /// Preset category id → (name, colour). Stable slugs, mirrored from `TimeCategory.presets`
+    /// so the widget (which can't see the app's models) can label the ring.
+    private static let presetCategories: [String: (String, String)] = [
+        "sleep": ("睡眠", "#4C6EF5"), "work": ("仕事", "#FA5252"),
+        "study": ("学習", "#7950F2"), "meal": ("食事", "#FD7E14"),
+        "commute": ("移動", "#22B8CF"), "exercise": ("運動", "#40C057"),
+        "chores": ("家事", "#94D82D"), "leisure": ("娯楽", "#F783AC"),
+        "free": ("自由", "#ADB5BD"),
+    ]
+
+    private struct SharedCategory: Codable { var id: String; var name: String; var colorHex: String }
+
+    /// Averages the recorded 実績 over the last `days` days into a "typical day" breakdown.
+    /// Only days that carry any blocks count toward the average, so a week with 3 recorded
+    /// days divides by 3, not 7.
+    static func typicalDay(days: Int = 30) -> TypicalDay {
+        let schedules: [String: SharedSchedule] = load(named: schedulesFile) ?? [:]
+        let customList: [SharedCategory] = load(named: "custom_categories.json") ?? []
+        var nameColor = presetCategories
+        for c in customList { nameColor[c.id] = (c.name, c.colorHex) }
+
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        var totals: [String: Int] = [:]
+        var daysWithData = 0
+        var officeDays = 0
+
+        for offset in 0..<days {
+            guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { continue }
+            let key = "\(dayKey(day))_actual"
+            guard let sched = schedules[key], !sched.blocks.isEmpty else { continue }
+            daysWithData += 1
+            var sawOffice = false
+            for block in sched.blocks {
+                let minutes = max(0, block.end - block.start)
+                totals[block.categoryID, default: 0] += minutes
+                if block.categoryID == "work" { sawOffice = true }
+            }
+            if sawOffice { officeDays += 1 }
+        }
+
+        guard daysWithData > 0 else {
+            return TypicalDay(averages: [], daysWithData: 0, officeDays: 0)
+        }
+
+        let averages = totals.map { id, total -> CategoryAverage in
+            let meta = nameColor[id] ?? (id, "#ADB5BD")
+            return CategoryAverage(id: id, name: meta.0, colorHex: meta.1,
+                                   averageMinutes: Int((Double(total) / Double(daysWithData)).rounded()))
+        }
+        .filter { $0.averageMinutes > 0 }
+        .sorted { $0.averageMinutes > $1.averageMinutes }
+
+        return TypicalDay(averages: averages, daysWithData: daysWithData, officeDays: officeDays)
+    }
+
     private static func loadWorkLogs() -> [String: WorkdayRecord] {
         load(named: workLogsFile) ?? [:]
     }

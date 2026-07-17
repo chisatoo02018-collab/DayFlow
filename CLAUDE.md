@@ -30,7 +30,7 @@ When adding or removing Swift files, run `xcodegen generate` before building.
 - `DayFlow/Models/` — `CalendarEvent`, `ReminderItem`, `TimeCategory`, `TimeBlock`, `DaySchedule`
 - `DayFlow/Views/` — `ReviewHomeView`（今日タブ）, `TimeScheduleView`（記録タブ）, `InsightsView`（分析タブ）, `MainTabView`, `SettingsView`, `HealthSection`（Apple Watchヘルス表示、ReviewHomeViewに埋め込み）（旧Month/Yearは互換用に残存。旧DashboardViewは非参照の死蔵だったため2026-07-13に削除）
 - `DayFlow/Views/Components/` — `NewItemSheet`, `DayDetailSheet`, `EventRow`, `ReminderRow`, `SectionHeader`, `TimeWheelView`, `CategoryEditorSheet`
-- `DayFlowWidget/` — Widget extension (TodayWidget, StatsWidget, shared `WidgetDataProvider`)
+- `DayFlowWidget/` — Widget extension (TodayWidget, StatsWidget, **TypicalDayWidget**「よく過ごす1日」, shared `WidgetDataProvider`)。TypicalDayは`DayFlowSharedStore.typicalDay(days:)`がApp Groupの`schedules.json`から直近N日の実績を平均集計（記録のある日だけで割る）→積み上げ24hバー＋上位カテゴリの平均時間＋出社日数。色はDayFlowShared/SharedColor.swiftの`Color(hex:)`（app/widget共通化のためTimeCategoryから移設）
 
 ### 時間割（Time-schedule）feature
 
