@@ -73,6 +73,7 @@ final class HealthService {
         async let resting = average(.restingHeartRate, unit: hrUnit, from: startOfDay, to: now)
         async let avgHR = average(.heartRate, unit: hrUnit, from: startOfDay, to: now)
         async let sleep = sleepHours(from: sleepStart, to: now)
+        async let stages = sleepStages(from: sleepStart, to: now)
 
         var snap = HealthSnapshot()
         snap.steps = await steps.map { Int($0) }
@@ -81,6 +82,7 @@ final class HealthService {
         snap.restingHeartRate = await resting.map { Int($0.rounded()) }
         snap.averageHeartRate = await avgHR.map { Int($0.rounded()) }
         snap.sleepHours = await sleep
+        snap.sleepStages = await stages
 
         let result = snap
         await MainActor.run { snapshot = result }
@@ -136,6 +138,43 @@ final class HealthService {
                     .map { DateInterval(start: $0.startDate, end: $0.endDate) }
                 let seconds = Self.merged(asleep).reduce(0.0) { $0 + $1.duration }
                 continuation.resume(returning: seconds > 0 ? seconds / 3600 : nil)
+            }
+            store.execute(query)
+        }
+    }
+
+    /// Last night's sleep split by stage, in hours. Each stage is merged independently before
+    /// summing, so overlapping samples from multiple sources don't double-count. Returns `nil`
+    /// when no sleep samples exist at all; a source that only logs undifferentiated "asleep"
+    /// yields a `SleepStages` whose stage fields are `nil`/zero (`hasStages == false`).
+    private func sleepStages(from start: Date, to end: Date) async -> SleepStages? {
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+        return await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: HKCategoryType(.sleepAnalysis),
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: nil
+            ) { _, samples, _ in
+                guard let samples = samples as? [HKCategorySample], !samples.isEmpty else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                func hours(_ value: HKCategoryValueSleepAnalysis) -> Double? {
+                    let intervals = samples
+                        .filter { $0.value == value.rawValue }
+                        .map { DateInterval(start: $0.startDate, end: $0.endDate) }
+                    guard !intervals.isEmpty else { return nil }
+                    let seconds = Self.merged(intervals).reduce(0.0) { $0 + $1.duration }
+                    return seconds > 0 ? seconds / 3600 : nil
+                }
+                let stages = SleepStages(
+                    deep: hours(.asleepDeep),
+                    core: hours(.asleepCore),
+                    rem: hours(.asleepREM),
+                    awake: hours(.awake)
+                )
+                continuation.resume(returning: stages)
             }
             store.execute(query)
         }

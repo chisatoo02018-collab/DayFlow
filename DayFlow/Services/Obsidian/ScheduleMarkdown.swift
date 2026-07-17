@@ -75,6 +75,19 @@ enum ScheduleMarkdown {
         out += line("安静時心拍", snapshot.restingHeartRate.map { "\($0) bpm" })
         out += line("平均心拍", snapshot.averageHeartRate.map { "\($0) bpm" })
         out += line("睡眠", snapshot.sleepHours.map { String(format: "%.1f 時間", $0) })
+        if let stages = snapshot.sleepStages, stages.hasStages {
+            func stage(_ label: String, _ hours: Double?) -> String? {
+                guard let hours, hours > 0 else { return nil }
+                return String(format: "%@ %.1fh", label, hours)
+            }
+            let parts = [
+                stage("深い", stages.deep),
+                stage("浅い", stages.core),
+                stage("REM", stages.rem),
+                stage("覚醒", stages.awake),
+            ].compactMap { $0 }
+            out += line("睡眠内訳", parts.isEmpty ? nil : parts.joined(separator: " / "))
+        }
         out += line("消費カロリー", snapshot.activeEnergy.map { "\($0) kcal" })
         out += line("運動", snapshot.exerciseMinutes.map { "\($0) 分" })
         out += "\n"

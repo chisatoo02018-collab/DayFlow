@@ -9,6 +9,7 @@ struct HealthSnapshot: Codable, Equatable {
     var restingHeartRate: Int?   // restingHeartRate, bpm
     var averageHeartRate: Int?   // heartRate, discrete average over today, bpm
     var sleepHours: Double?      // asleep duration last night, hours
+    var sleepStages: SleepStages?  // last night's stage breakdown (nil when the source has no stages)
     var activeEnergy: Int?       // activeEnergyBurned, kcal
     var exerciseMinutes: Int?    // appleExerciseTime, minutes
 
@@ -17,5 +18,21 @@ struct HealthSnapshot: Codable, Equatable {
     var hasAnyData: Bool {
         steps != nil || restingHeartRate != nil || averageHeartRate != nil
             || sleepHours != nil || activeEnergy != nil || exerciseMinutes != nil
+    }
+}
+
+/// Last night's sleep broken down by HealthKit stage, in hours. Fields are optional so a
+/// source that only reports "asleep" (no staging) leaves them `nil`; `hasStages` gates
+/// whether the breakdown is worth rendering at all. `awake` is time in bed but awake.
+struct SleepStages: Codable, Equatable {
+    var deep: Double?    // asleepDeep
+    var core: Double?    // asleepCore (light)
+    var rem: Double?     // asleepREM
+    var awake: Double?   // awake (in bed)
+
+    /// True when at least one distinct stage was measured — i.e. the watch staged the night,
+    /// not just logged an undifferentiated asleep block.
+    var hasStages: Bool {
+        (deep ?? 0) > 0 || (core ?? 0) > 0 || (rem ?? 0) > 0
     }
 }
