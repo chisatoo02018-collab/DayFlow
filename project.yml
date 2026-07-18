@@ -10,7 +10,7 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "1.1.0"
-    CURRENT_PROJECT_VERSION: "38"
+    CURRENT_PROJECT_VERSION: "39"
     DEVELOPMENT_TEAM: WY55TM2MU8
     CODE_SIGN_STYLE: Automatic
 
@@ -20,6 +20,11 @@ targets:
     platform: iOS
     sources:
       - path: DayFlow
+        excludes:
+          # This was an owner-specific importer for a private Obsidian vault
+          # (purchase and viewing-history paths). It has no useful setup path
+          # for a new customer, so it must not ship in the public app.
+          - Services/LifeEventService.swift
       - path: DayFlowShared
       - path: Assets.xcassets
     settings:

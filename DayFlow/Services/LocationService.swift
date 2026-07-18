@@ -101,8 +101,11 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     func requestCurrentLocation() {
-        if authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
-        manager.requestLocation()
+        if authorizationStatus == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        } else if authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+            manager.requestLocation()
+        }
     }
 
     // MARK: - Events
@@ -239,6 +242,10 @@ final class LocationService: NSObject, CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
         refreshMonitoring()
+        if onCurrentLocation != nil,
+           authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways {
+            manager.requestLocation()
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {

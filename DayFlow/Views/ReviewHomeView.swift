@@ -1,3 +1,4 @@
+import EventKit
 import SwiftUI
 
 struct ReviewHomeView: View {
@@ -5,7 +6,6 @@ struct ReviewHomeView: View {
     @Environment(ReminderService.self) private var reminderService
     @Environment(ScheduleStore.self) private var store
     @Environment(HealthService.self) private var healthService
-    @Environment(LifeEventService.self) private var lifeEventService
     @Environment(VaultWriter.self) private var vaultWriter
     @Environment(LocationService.self) private var locationService
     @Environment(PlaceStore.self) private var placeStore
@@ -95,7 +95,14 @@ struct ReviewHomeView: View {
                         )
                     }
 
-                    TodayAgenda(events: calendarService.events, reminders: reminderService.reminders)
+                    TodayAgenda(
+                        events: calendarService.events,
+                        reminders: reminderService.reminders,
+                        calendarStatus: calendarService.authorizationStatus,
+                        reminderStatus: reminderService.authorizationStatus,
+                        requestCalendar: { Task { await calendarService.requestAccess() } },
+                        requestReminders: { Task { await reminderService.requestAccess() } }
+                    )
 
                     HealthSection(
                         snapshot: healthService.snapshot,
@@ -103,10 +110,6 @@ struct ReviewHomeView: View {
                         onSync: syncHealthManually
                     )
 
-                    DayEventsSection(
-                        events: lifeEventService.events,
-                        isLoading: lifeEventService.isLoading
-                    )
                 }
                 .padding()
             }
@@ -114,8 +117,7 @@ struct ReviewHomeView: View {
             .navigationTitle("DayFlow")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await loadToday() }
-            .task { await requestAccessAndLoad() }
-            .task { await lifeEventService.load(date: yesterday, vault: vaultWriter) }
+            .task { await loadAvailableIntegrations() }
             .alert("Obsidian記録", isPresented: $showHealthSyncAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -179,11 +181,16 @@ struct ReviewHomeView: View {
         return TimeGrid.blocks(from: slots, source: .calendar)
     }
 
-    private func requestAccessAndLoad() async {
-        await calendarService.requestAccess()
-        await reminderService.requestAccess()
-        await healthService.requestAccess()
-        HealthBackgroundSync.shared.start()   // enable background delivery now that access is granted
+    /// Do not show several system prompts on launch. Each integration is enabled from
+    /// its own clear call-to-action, while already-authorized services simply refresh.
+    private func loadAvailableIntegrations() async {
+        if calendarService.authorizationStatus == .fullAccess {
+            await calendarService.fetchTodayEvents()
+        }
+        if reminderService.authorizationStatus == .fullAccess {
+            await reminderService.fetchReminders()
+        }
+        await healthService.refresh()
         syncHealthToVault()
     }
 
@@ -192,7 +199,6 @@ struct ReviewHomeView: View {
         await reminderService.fetchReminders()
         await healthService.refresh()
         syncHealthToVault()
-        await lifeEventService.load(date: yesterday, vault: vaultWriter, force: true)
     }
 
     /// Mirror the fetched metrics into today's Daily note. Only when there's real data,
@@ -282,6 +288,10 @@ private struct DayCard: View {
 private struct TodayAgenda: View {
     let events: [CalendarEvent]
     let reminders: [ReminderItem]
+    let calendarStatus: EKAuthorizationStatus
+    let reminderStatus: EKAuthorizationStatus
+    let requestCalendar: () -> Void
+    let requestReminders: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -290,6 +300,23 @@ private struct TodayAgenda: View {
                 Spacer()
                 Text("予定 \(events.count) · タスク \(reminders.count)")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            if calendarStatus != .fullAccess || reminderStatus != .fullAccess {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("連携は必要なものだけ有効にできます")
+                        .font(.subheadline.weight(.medium))
+                    Text("予定とリマインダーは端末上でのみ読み込みます。許可しなくても、時間の記録はすべて利用できます。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        if calendarStatus != .fullAccess {
+                            Button("カレンダーを連携", action: requestCalendar).buttonStyle(.bordered)
+                        }
+                        if reminderStatus != .fullAccess {
+                            Button("リマインダーを連携", action: requestReminders).buttonStyle(.bordered)
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
             }
             if events.isEmpty && reminders.isEmpty {
                 ContentUnavailableView("余白のある一日です", systemImage: "sparkles", description: Text("時間割で、自分のための時間を先に確保できます。"))
