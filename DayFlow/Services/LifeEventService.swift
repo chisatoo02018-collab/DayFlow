@@ -17,6 +17,20 @@ final class LifeEventService {
     var isLoading = false
     private var loadedKey: String?
 
+    /// Month-level spending, aggregated by purchase source. Drives the Insights tab's money
+    /// axis alongside the existing time-by-category portfolio.
+    var spending: [SpendingRow] = []
+    var isLoadingSpending = false
+    private var spendingKey: String?
+    var spendingTotal: Int { spending.reduce(0) { $0 + $1.total } }
+
+    struct SpendingRow: Identifiable {
+        let id: String        // source dir
+        let source: String    // display label
+        let total: Int        // yen summed over the month
+        let count: Int        // number of line items
+    }
+
     /// Purchase sources correspond to the subfolders under `inputs/購入履歴/`. Kept as a fixed
     /// list so a single read path works for both local and GitHub (no directory listing needed).
     private static let purchaseSources: [(dir: String, label: String)] = [
@@ -46,6 +60,32 @@ final class LifeEventService {
         }
         events = result
         loadedKey = key
+    }
+
+    /// Aggregates a month's purchases by source. Idempotent per month unless `force`.
+    func loadSpending(month: Date, vault: VaultWriter, force: Bool = false) async {
+        let key = Self.monthKey(month)
+        if !force, spendingKey == key { return }
+        isLoadingSpending = true
+        defer { isLoadingSpending = false }
+
+        var rows: [SpendingRow] = []
+        for source in Self.purchaseSources {
+            let path = "inputs/購入履歴/\(source.dir)/\(key).md"
+            guard let text = await readFile(path, vault: vault),
+                  let schema = Self.purchaseSchema(text) else { continue }
+            var total = 0, count = 0
+            for raw in text.split(separator: "\n") {
+                let cols = Self.cells(raw)
+                guard cols.count > schema.maxIndex,
+                      cols[schema.date].hasPrefix(key) else { continue }  // data rows of this month
+                if let yen = Self.parseYen(cols[schema.amount]) { total += yen }
+                count += 1
+            }
+            if count > 0 { rows.append(SpendingRow(id: source.dir, source: source.label, total: total, count: count)) }
+        }
+        spending = rows.sorted { $0.total > $1.total }
+        spendingKey = key
     }
 
     // MARK: - Parsers
@@ -176,4 +216,5 @@ final class LifeEventService {
     }()
 
     static func dayKey(_ date: Date) -> String { dayFormatter.string(from: date) }
+    static func monthKey(_ date: Date) -> String { String(dayFormatter.string(from: date).prefix(7)) }
 }

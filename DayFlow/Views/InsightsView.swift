@@ -2,6 +2,8 @@ import SwiftUI
 
 struct InsightsView: View {
     @Environment(ScheduleStore.self) private var store
+    @Environment(LifeEventService.self) private var lifeEventService
+    @Environment(VaultWriter.self) private var vaultWriter
     @State private var displayedMonth = Date()
     @State private var kind: ScheduleKind = .actual
 
@@ -18,14 +20,23 @@ struct InsightsView: View {
                     .pickerStyle(.segmented)
 
                     RecordingOverview(recordedDays: schedules.count, totalDays: elapsedDays)
+                    TimeMoneyHeadline(totalMinutes: totalMinutes, totalSpend: lifeEventService.spendingTotal)
                     CategoryTimeChart(rows: categoryRows, totalMinutes: totalMinutes)
+                    SpendingChart(
+                        rows: lifeEventService.spending,
+                        total: lifeEventService.spendingTotal,
+                        isLoading: lifeEventService.isLoadingSpending
+                    )
                     PlanActualInsight(planMinutes: planMinutes, actualMinutes: actualMinutes)
                 }
                 .padding()
             }
             .background(Color(.systemGroupedBackground))
-            .navigationTitle("時間の分析")
+            .navigationTitle("時間とお金の分析")
             .navigationBarTitleDisplayMode(.inline)
+            .task(id: LifeEventService.monthKey(displayedMonth)) {
+                await lifeEventService.loadSpending(month: displayedMonth, vault: vaultWriter)
+            }
         }
     }
 
@@ -147,6 +158,75 @@ private struct CategoryTimeChart: View {
 
     private func duration(_ minutes: Int) -> String {
         minutes % 60 == 0 ? "\(minutes / 60)時間" : "\(minutes / 60)時間\(minutes % 60)分"
+    }
+}
+
+/// Month headline pairing the two axes: hours tracked vs yen spent. The join is at the period
+/// level — purchases carry no life-category, so per-category money isn't claimed here.
+private struct TimeMoneyHeadline: View {
+    let totalMinutes: Int
+    let totalSpend: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            stat("記録時間", value: "\(totalMinutes / 60)", unit: "時間", systemImage: "clock.fill", tint: .indigo)
+            Divider().frame(height: 40)
+            stat("支出", value: "¥\(totalSpend.formatted())", unit: "", systemImage: "yensign.circle.fill", tint: .orange)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(.background, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func stat(_ label: String, value: String, unit: String, systemImage: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(label, systemImage: systemImage).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value).font(.title2.weight(.bold)).foregroundStyle(tint).monospacedDigit()
+                if !unit.isEmpty { Text(unit).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Month spending broken down by purchase source, mirroring the time portfolio's bar layout.
+private struct SpendingChart: View {
+    let rows: [LifeEventService.SpendingRow]
+    let total: Int
+    let isLoading: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("お金の使い方（ソース別）").font(.headline)
+                Spacer()
+                if isLoading { ProgressView().controlSize(.small) }
+            }
+            if rows.isEmpty {
+                ContentUnavailableView(
+                    isLoading ? "読み込み中…" : "購入の記録がありません",
+                    systemImage: "cart",
+                    description: Text("購入履歴がVaultに入ると、支出の配分が見えるようになります。")
+                )
+                .frame(minHeight: 150)
+            } else {
+                ForEach(rows.prefix(8)) { row in
+                    VStack(spacing: 6) {
+                        HStack {
+                            Label(row.source, systemImage: "circle.fill").foregroundStyle(.orange)
+                            Spacer()
+                            Text("¥\(row.total.formatted())").font(.subheadline.weight(.semibold)).monospacedDigit()
+                            Text("\(Int(Double(row.total) / Double(max(1, total)) * 100))%")
+                                .font(.caption).foregroundStyle(.secondary).frame(width: 34, alignment: .trailing)
+                        }
+                        ProgressView(value: Double(row.total), total: Double(max(1, total))).tint(.orange)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(.background, in: RoundedRectangle(cornerRadius: 18))
     }
 }
 
