@@ -89,12 +89,13 @@ struct TodayEntry: TimelineEntry {
     let showReminders: Bool
     let maxItems: Int
     let workRecord: WorkdayRecord?
+    let openDestination: WidgetOpenDestination
 
     static var placeholder: TodayEntry {
         TodayEntry(date: Date(), events: [], reminders: [],
                    eventCount: 3, reminderCount: 5, overdueCount: 1,
                    showCalendar: true, showReminders: true, maxItems: 5,
-                   workRecord: nil)
+                   workRecord: nil, openDestination: .today)
     }
 }
 
@@ -105,6 +106,7 @@ struct StatsEntry: TimelineEntry {
     let month: PeriodCompletion
     let year: PeriodCompletion
     let trend: [DailyStats]
+    let openDestination: WidgetOpenDestination
 
     static var placeholder: StatsEntry {
         let cal = Calendar.current
@@ -120,7 +122,7 @@ struct StatsEntry: TimelineEntry {
             week: PeriodCompletion(completed: 25, total: 40),
             month: PeriodCompletion(completed: 80, total: 120),
             year: PeriodCompletion(completed: 500, total: 800),
-            trend: trend
+            trend: trend, openDestination: .insights
         )
     }
 }

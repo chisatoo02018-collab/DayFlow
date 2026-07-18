@@ -5,7 +5,9 @@ struct MainTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: AppTab = .today
     @State private var recorderDate = Date()
-    @State private var recorderKind: ScheduleKind = .plan
+    // The record tab is intentionally actual-first. Plans are entered deliberately
+    // from the Today cards, never by footer navigation.
+    @State private var recorderKind: ScheduleKind = .actual
     @State private var presentedSheet: AppSheet?
 
     var body: some View {
@@ -33,6 +35,10 @@ struct MainTabView: View {
                 handlePendingRoute()
             }
         }
+        .onOpenURL { url in
+            guard let route = DayFlowSharedStore.route(from: url) else { return }
+            open(route)
+        }
         .sheet(item: $presentedSheet) { sheet in
             switch sheet {
             case .wakeTimePicker:
@@ -50,11 +56,19 @@ struct MainTabView: View {
 
     private func handlePendingRoute() {
         guard let route = DayFlowSharedStore.consumeRoute() else { return }
+        open(route)
+    }
+
+    private func open(_ route: DayFlowSharedStore.Route) {
         switch route {
+        case .today:
+            selectedTab = .today
         case .todayActual:
             recorderDate = Date()
             recorderKind = .actual
             selectedTab = .record
+        case .insights:
+            selectedTab = .insights
         case .wakeTimePicker:
             presentedSheet = .wakeTimePicker
         }

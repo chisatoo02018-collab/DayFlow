@@ -7,6 +7,7 @@ struct DayFlowWidgetBundle: WidgetBundle {
         TodayWidget()
         StatsWidget()
         TypicalDayWidget()
+        RecordPromptWidget()
         if #available(iOSApplicationExtension 18.0, *) {
             ArrivalControl()
             DepartureControl()

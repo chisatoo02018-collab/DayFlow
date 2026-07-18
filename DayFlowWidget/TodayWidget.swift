@@ -27,7 +27,7 @@ struct TodayProvider: AppIntentTimelineProvider {
             date: Date(), events: events, reminders: reminders,
             eventCount: eventTotal, reminderCount: remTotal, overdueCount: overdueTotal,
             showCalendar: showCal, showReminders: showRem, maxItems: 5,
-            workRecord: DayFlowSharedStore.workRecord()
+            workRecord: DayFlowSharedStore.workRecord(), openDestination: config.openDestination
         )
     }
 }
@@ -39,6 +39,7 @@ struct TodayWidget: Widget {
         AppIntentConfiguration(kind: kind, intent: TodayWidgetIntent.self, provider: TodayProvider()) { entry in
             TodayWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
+                .widgetURL(DayFlowSharedStore.deepLink(for: entry.openDestination.route))
         }
         .configurationDisplayName("今日のDayFlow")
         .description("今日の予定と勤務状況を確認し、出社・退社をすぐ記録できます。")

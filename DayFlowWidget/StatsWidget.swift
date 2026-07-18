@@ -34,7 +34,8 @@ struct StatsProvider: AppIntentTimelineProvider {
             week: data.fetchCompletion(from: startOfWeek, to: endOfDay),
             month: data.fetchCompletion(from: startOfMonth, to: endOfDay),
             year: data.fetchCompletion(from: startOfYear, to: endOfDay),
-            trend: data.fetchDailyTrend(days: config.trendDays.rawValue)
+            trend: data.fetchDailyTrend(days: config.trendDays.rawValue),
+            openDestination: config.openDestination
         )
     }
 }
@@ -46,6 +47,7 @@ struct StatsWidget: Widget {
         AppIntentConfiguration(kind: kind, intent: StatsWidgetIntent.self, provider: StatsProvider()) { entry in
             StatsWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
+                .widgetURL(DayFlowSharedStore.deepLink(for: entry.openDestination.route))
         }
         .configurationDisplayName("DayFlow Stats")
         .description("Completion rates and activity trends.")

@@ -6,6 +6,7 @@ import WidgetKit
 struct TypicalDayEntry: TimelineEntry {
     let date: Date
     let typical: DayFlowSharedStore.TypicalDay
+    let openDestination: WidgetOpenDestination
 
     static var placeholder: TypicalDayEntry {
         TypicalDayEntry(date: Date(), typical: .init(
@@ -16,23 +17,27 @@ struct TypicalDayEntry: TimelineEntry {
                 .init(id: "leisure", name: "娯楽", colorHex: "#F783AC", averageMinutes: 150),
                 .init(id: "commute", name: "移動", colorHex: "#22B8CF", averageMinutes: 60),
             ],
-            daysWithData: 14, officeDays: 9))
+            daysWithData: 14, officeDays: 9), openDestination: .insights)
     }
 }
 
-struct TypicalDayProvider: TimelineProvider {
+struct TypicalDayProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> TypicalDayEntry { .placeholder }
 
-    func getSnapshot(in context: Context, completion: @escaping (TypicalDayEntry) -> Void) {
-        completion(context.isPreview ? .placeholder
-                   : TypicalDayEntry(date: Date(), typical: DayFlowSharedStore.typicalDay()))
+    func snapshot(for configuration: TypicalDayWidgetIntent, in context: Context) async -> TypicalDayEntry {
+        context.isPreview ? .placeholder : entry(configuration)
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<TypicalDayEntry>) -> Void) {
-        let entry = TypicalDayEntry(date: Date(), typical: DayFlowSharedStore.typicalDay())
+    func timeline(for configuration: TypicalDayWidgetIntent, in context: Context) async -> Timeline<TypicalDayEntry> {
+        let entry = entry(configuration)
         // Recorded days change at most once a day; refresh a few times to stay current.
         let next = Calendar.current.date(byAdding: .hour, value: 6, to: Date()) ?? Date()
-        completion(Timeline(entries: [entry], policy: .after(next)))
+        return Timeline(entries: [entry], policy: .after(next))
+    }
+
+    private func entry(_ configuration: TypicalDayWidgetIntent) -> TypicalDayEntry {
+        TypicalDayEntry(date: Date(), typical: DayFlowSharedStore.typicalDay(),
+                        openDestination: configuration.openDestination)
     }
 }
 
@@ -110,9 +115,10 @@ struct TypicalDayWidgetView: View {
 
 struct TypicalDayWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "TypicalDayWidget", provider: TypicalDayProvider()) { entry in
+        AppIntentConfiguration(kind: "TypicalDayWidget", intent: TypicalDayWidgetIntent.self, provider: TypicalDayProvider()) { entry in
             TypicalDayWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
+                .widgetURL(DayFlowSharedStore.deepLink(for: entry.openDestination.route))
         }
         .configurationDisplayName("よく過ごす1日")
         .description("記録した実績を平均して、平均的な1日の過ごし方を表示します。")

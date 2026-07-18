@@ -1,6 +1,27 @@
 import AppIntents
 import WidgetKit
 
+enum WidgetOpenDestination: String, AppEnum {
+    case today
+    case record
+    case insights
+
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Open App To")
+    static var caseDisplayRepresentations: [WidgetOpenDestination: DisplayRepresentation] = [
+        .today: "今日",
+        .record: "今日の記録",
+        .insights: "分析",
+    ]
+
+    var route: DayFlowSharedStore.Route {
+        switch self {
+        case .today: .today
+        case .record: .todayActual
+        case .insights: .insights
+        }
+    }
+}
+
 // MARK: - Today Widget
 
 enum DisplayMode: String, AppEnum {
@@ -20,6 +41,9 @@ struct TodayWidgetIntent: WidgetConfigurationIntent {
 
     @Parameter(title: "Display", default: .both)
     var displayMode: DisplayMode
+
+    @Parameter(title: "Open App To", default: .today)
+    var openDestination: WidgetOpenDestination
 }
 
 // MARK: - Stats Widget
@@ -43,4 +67,15 @@ struct StatsWidgetIntent: WidgetConfigurationIntent {
 
     @Parameter(title: "Trend Period", default: .sevenDays)
     var trendDays: TrendDays
+
+    @Parameter(title: "Open App To", default: .insights)
+    var openDestination: WidgetOpenDestination
+}
+
+struct TypicalDayWidgetIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "Typical Day Settings"
+    static var description = IntentDescription("Choose where to continue in DayFlow.")
+
+    @Parameter(title: "Open App To", default: .insights)
+    var openDestination: WidgetOpenDestination
 }

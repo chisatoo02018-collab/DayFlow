@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The 時間割 tab: pick a day and 予定/実績, paint the 24-hour wheel with categories,
+/// The 記録 tab: pick a day and 予定/実績, paint the 24-hour wheel with categories,
 /// and see the per-category breakdown. Edits persist to `ScheduleStore` on every
 /// drag release; the record survives app restarts and (Phase 2) mirrors to Obsidian.
 struct TimeScheduleView: View {
@@ -11,7 +11,7 @@ struct TimeScheduleView: View {
     @Environment(PlaceStore.self) private var placeStore
 
     @State private var date = Calendar.current.startOfDay(for: Date())
-    @State private var kind: ScheduleKind = .plan
+    @State private var kind: ScheduleKind = .actual
     /// nil = eraser (未設定に戻す).
     @State private var activeCategoryID: String? = TimeCategory.presets.first?.id
     @State private var slots = [String?](repeating: nil, count: slotsPerDay)
@@ -25,7 +25,7 @@ struct TimeScheduleView: View {
     @State private var showSleepImportAlert = false
     @State private var sleepImportMessage = ""
 
-    init(date: Date = Date(), kind: ScheduleKind = .plan) {
+    init(date: Date = Date(), kind: ScheduleKind = .actual) {
         _date = State(initialValue: Calendar.current.startOfDay(for: date))
         _kind = State(initialValue: kind)
     }

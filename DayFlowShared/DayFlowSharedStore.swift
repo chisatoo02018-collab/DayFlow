@@ -23,8 +23,22 @@ enum DayFlowSharedStore {
     private static let pendingRouteKey = "pendingRoute"
 
     enum Route: String {
+        case today
         case todayActual
+        case insights
         case wakeTimePicker
+    }
+
+    /// One URL contract for every widget and system surface that opens the app.
+    /// Keeping this in the shared module means a widget never needs to know about
+    /// the app's TabView implementation.
+    static func deepLink(for route: Route) -> URL {
+        URL(string: "dayflow://open/\(route.rawValue)")!
+    }
+
+    static func route(from url: URL) -> Route? {
+        guard url.scheme == "dayflow", url.host == "open" else { return nil }
+        return Route(rawValue: url.lastPathComponent)
     }
 
     static func workRecord(on date: Date = Date()) -> WorkdayRecord? {
