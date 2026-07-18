@@ -7,6 +7,8 @@ struct TimeScheduleView: View {
     @Environment(ScheduleStore.self) private var store
     @Environment(VaultWriter.self) private var vault
     @Environment(HealthService.self) private var health
+    @Environment(PhotoMetadataService.self) private var photoMetadata
+    @Environment(ScreenTimeService.self) private var screenTime
     @Environment(LocationService.self) private var location
     @Environment(PlaceStore.self) private var placeStore
 
@@ -111,6 +113,7 @@ struct TimeScheduleView: View {
                     }
                 case .settings:
                     SettingsView(writer: vault, health: health,
+                                 photos: photoMetadata, screenTime: screenTime,
                                  placeStore: placeStore, location: location)
                 case .templates:
                     ScheduleTemplateSheet(

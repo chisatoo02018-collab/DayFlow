@@ -25,6 +25,8 @@ When adding or removing Swift files, run `xcodegen generate` before building.
 ## Architecture
 
 - `DayFlow/Services/` — `CalendarService`, `ReminderService` (`@Observable`, EventKit), `ScheduleStore`, `HealthService`（HealthKit読み取り: 歩数/心拍/睡眠/消費kcal/運動。睡眠・運動の区間取得も）, `HealthBackgroundSync`（HKObserverQuery+バックグラウンド配信でアプリ非起動時もdaily note更新）, `LocationService`（Core Location region monitoringで自宅/職場の出入りを検知しLocationEventを永続化→日毎のstay/moving/awayセグメントへ変換。BGProcessingTaskは使わない=LifeLogの死因回避）, `LocationRingMapper`（セグメント→所在地リング色・実績リングの空きスロット補完）
+- `PhotoMetadataService` — 設定画面で本人が明示的に許可した後だけPhotoKitを読み、写真・動画のメタデータをApplication Support内へ保存する。原本・サムネイル・顔・OCRは扱わない。初回は全件、以後は`PHPersistentChangeToken`で差分同期し、token失効時は全件再構築する
+- `ScreenTimeService` — Family Controls配布entitlement取得前後で設定UIを安定させる境界。通常buildでは`FAMILY_CONTROLS_ENABLED`を定義せず申請待ち表示だけを出し、Apple承認・entitlement追加後に本人の`.individual`認証を有効化する
 - `DayFlow/Models/Place.swift` — `Place`（自宅/職場/その他の座標・半径。ジオフェンス）と`PlaceStore`（永続化・座標はユーザー設定で端末内のみ）
 - `DayFlow/Services/Obsidian/` — Obsidian連携（VoiceDrop方式を移植）: `KeychainStore`, `GitHubClient`, `GitHubSync`, `VaultWriter`, `ScheduleMarkdown`
 - `DayFlow/Models/` — `CalendarEvent`, `ReminderItem`, `TimeCategory`, `TimeBlock`, `DaySchedule`

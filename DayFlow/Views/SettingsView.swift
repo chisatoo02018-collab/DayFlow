@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 /// Obsidian sync setup for DayFlow: pick the local vault folder and/or configure the
@@ -9,6 +10,8 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @Bindable var writer: VaultWriter
     @Bindable var health: HealthService
+    @Bindable var photos: PhotoMetadataService
+    @Bindable var screenTime: ScreenTimeService
     @Bindable var placeStore: PlaceStore
     @Bindable var location: LocationService
     @Environment(\.dismiss) private var dismiss
@@ -26,6 +29,10 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 healthSection
+
+                visualLogSection
+
+                screenTimeSection
 
                 locationSection
 
@@ -70,6 +77,114 @@ struct SettingsView: View {
                 if case .success(let url) = result { writer.selectVault(url) }
             }
         }
+    }
+
+    // MARK: - Visual log
+
+    @ViewBuilder
+    private var visualLogSection: some View {
+        Section {
+            switch photos.authorizationStatus {
+            case .notDetermined:
+                Button {
+                    Task { await photos.requestAccess() }
+                } label: {
+                    Label("視覚ログを有効化", systemImage: "photo.on.rectangle.angled")
+                }
+            case .authorized, .limited:
+                Label(
+                    photos.isFullAccess ? "写真フルアクセス許可済み" : "選択した写真だけ許可済み",
+                    systemImage: photos.isFullAccess ? "checkmark.circle.fill" : "photo.badge.checkmark"
+                )
+                .font(.footnote)
+                .foregroundStyle(photos.isFullAccess ? .green : .orange)
+
+                LabeledContent("メタデータ索引", value: "\(photos.summary.total)件")
+                LabeledContent("今日の撮影", value: "\(photos.summary.today)件")
+                LabeledContent("位置情報付き", value: "\(photos.summary.withLocation)件")
+
+                Button {
+                    Task { await photos.sync() }
+                } label: {
+                    HStack {
+                        Label("今すぐ差分を取り込む", systemImage: "arrow.triangle.2.circlepath")
+                        Spacer()
+                        if photos.isSyncing { ProgressView() }
+                    }
+                }
+                .disabled(photos.isSyncing)
+
+                if !photos.isFullAccess {
+                    Button("写真アクセス設定を開く") { openAppSettings() }
+                }
+            case .denied, .restricted:
+                Label("写真へのアクセスが許可されていません", systemImage: "photo.badge.exclamationmark")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button("設定アプリで写真アクセスを変更") { openAppSettings() }
+            @unknown default:
+                EmptyView()
+            }
+
+            if let lastSyncAt = photos.lastSyncAt {
+                LabeledContent("最終同期") {
+                    Text(lastSyncAt, format: .dateTime.month().day().hour().minute())
+                }
+            }
+            if let error = photos.lastError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote).foregroundStyle(.red)
+            }
+        } header: {
+            Text("視覚ログ（写真メタデータ）")
+        } footer: {
+            Text("撮影日時・場所・種類・長さ・寸法・お気に入り等だけを端末内へ保存します。写真・動画本体、顔認識、実名推定は扱わず、GitHub・Vault・LiveSyncへも送りません。初回以降はPhotoKitの差分だけを取り込みます。")
+        }
+    }
+
+    // MARK: - Screen Time
+
+    @ViewBuilder
+    private var screenTimeSection: some View {
+        Section {
+            switch screenTime.status {
+            case .entitlementRequired:
+                Label("Family Controls配布権限の申請待ち", systemImage: "hourglass.badge.clock")
+                    .font(.footnote).foregroundStyle(.orange)
+                Button("Screen Time認証を準備") {
+                    Task { await screenTime.requestAccess() }
+                }
+                .disabled(!screenTime.isCapabilityConfigured)
+            case .notDetermined:
+                Button {
+                    Task { await screenTime.requestAccess() }
+                } label: {
+                    HStack {
+                        Label("Face IDでScreen Timeを許可", systemImage: "faceid")
+                        Spacer()
+                        if screenTime.isRequesting { ProgressView() }
+                    }
+                }
+                .disabled(screenTime.isRequesting)
+            case .approved:
+                Label("Screen Time認証済み", systemImage: "checkmark.circle.fill")
+                    .font(.footnote).foregroundStyle(.green)
+            case .denied:
+                Label("Screen Timeが許可されていません", systemImage: "xmark.circle")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if let error = screenTime.lastError {
+                Text(error).font(.footnote).foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("iPhone使用時間")
+        } footer: {
+            Text("Apple承認後は、本人のFace ID / Touch IDで許可し、まずDayFlow内にカテゴリ別の日次・週次使用時間だけを表示します。プライバシー保護sandboxからVaultへは自動送信しません。")
+        }
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     // MARK: - Location

@@ -62,5 +62,7 @@
 	<string>自宅や職場として登録する地点を、現在地から設定するために使用します。</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>登録した自宅・職場の出入りを検知して、出社や移動を自動で記録します。位置情報は端末内に保存され、常時追跡はしません。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>写真・動画の撮影日時、場所、種類などのメタデータを端末内の視覚ログへ記録するために使用します。画像や動画そのものはコピーしません。</string>
 </dict>
 </plist>

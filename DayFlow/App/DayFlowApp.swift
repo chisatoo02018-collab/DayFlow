@@ -19,6 +19,8 @@ struct DayFlowApp: App {
     @State private var scheduleStore = ScheduleStore()
     @State private var vaultWriter = VaultWriter()
     @State private var healthService = HealthService()
+    @State private var photoMetadataService = PhotoMetadataService()
+    @State private var screenTimeService = ScreenTimeService()
     @State private var placeStore = PlaceStore()
     @State private var locationService: LocationService
 
@@ -36,11 +38,15 @@ struct DayFlowApp: App {
                 .environment(scheduleStore)
                 .environment(vaultWriter)
                 .environment(healthService)
+                .environment(photoMetadataService)
+                .environment(screenTimeService)
                 .environment(placeStore)
                 .environment(locationService)
                 // Geofences must be (re)registered on every cold start, including the
                 // background relaunches iOS performs after a crossing.
                 .task { locationService.refreshMonitoring() }
+                // This checks the existing Photos decision only; it never prompts on launch.
+                .task { await photoMetadataService.refreshIfAuthorized() }
         }
     }
 }
