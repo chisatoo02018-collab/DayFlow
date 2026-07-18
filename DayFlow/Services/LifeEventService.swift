@@ -73,17 +73,41 @@ final class LifeEventService {
         for source in Self.purchaseSources {
             let path = "inputs/購入履歴/\(source.dir)/\(monthKey).md"
             guard let text = await readFile(path, vault: vault) else { continue }
+            // Each source has its own columns (Amazon: 種別/商品, Apple: 内容, SMBC: 利用先/取引,
+            // Google Play: 日時始まり …), so map columns by parsing the header rather than
+            // assuming fixed indices.
+            guard let schema = Self.purchaseSchema(text) else { continue }
             for raw in text.split(separator: "\n") {
                 let cols = Self.cells(raw)
-                // | 日付 | 種別 | 商品 | 金額 | 注文番号 |
-                guard cols.count >= 5, cols[1] == dayKey else { continue }
+                guard cols.count > schema.maxIndex,
+                      cols[schema.date].hasPrefix(dayKey) else { continue }  // hasPrefix: tolerate a time in the date cell
                 out.append(DayEvent(kind: .purchase, minutes: nil,
-                                    title: Self.shorten(cols[3]),
-                                    subtitle: cols[2].isEmpty ? source.label : "\(source.label)・\(cols[2])",
-                                    amountYen: Self.parseYen(cols[4])))
+                                    title: Self.shorten(cols[schema.title]),
+                                    subtitle: source.label,
+                                    amountYen: Self.parseYen(cols[schema.amount])))
             }
         }
         return out
+    }
+
+    /// Column indices for a purchase table, resolved from its header row. Date is 日付/日時/通知日,
+    /// amount is always 金額, and the title is the first descriptive column present. Returns nil
+    /// if the file has no recognizable header.
+    struct PurchaseSchema { let date: Int; let title: Int; let amount: Int
+        var maxIndex: Int { max(date, max(title, amount)) } }
+
+    static func purchaseSchema(_ text: String) -> PurchaseSchema? {
+        let dateHeaders: Set<String> = ["日付", "日時", "通知日"]
+        let titlePriority = ["商品", "内容", "利用先", "取引", "ショップ", "種別", "対象月"]
+        for raw in text.split(separator: "\n") {
+            let h = cells(raw)
+            guard let amount = h.firstIndex(of: "金額"),
+                  let date = h.firstIndex(where: { dateHeaders.contains($0) }) else { continue }
+            let title = titlePriority.compactMap { h.firstIndex(of: $0) }.first
+                ?? (date + 1 < amount ? date + 1 : date)
+            return PurchaseSchema(date: date, title: title, amount: amount)
+        }
+        return nil
     }
 
     // MARK: - Vault read (local bookmark first, then GitHub mirror)
