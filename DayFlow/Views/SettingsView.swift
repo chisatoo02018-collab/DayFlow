@@ -2,6 +2,10 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+#if FAMILY_CONTROLS_ENABLED
+import DeviceActivity
+#endif
+
 /// Obsidian sync setup for DayFlow: pick the local vault folder and/or configure the
 /// GitHub mirror. All optional — the 時間割 editor works without any of it.
 ///
@@ -168,6 +172,10 @@ struct SettingsView: View {
             case .approved:
                 Label("Screen Time認証済み", systemImage: "checkmark.circle.fill")
                     .font(.footnote).foregroundStyle(.green)
+                #if FAMILY_CONTROLS_ENABLED
+                ScreenTimeReportView()
+                    .frame(minHeight: 240)
+                #endif
             case .denied:
                 Label("Screen Timeが許可されていません", systemImage: "xmark.circle")
                     .font(.footnote).foregroundStyle(.secondary)

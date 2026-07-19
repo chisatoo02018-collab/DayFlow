@@ -10,7 +10,7 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "1.1.0"
-    CURRENT_PROJECT_VERSION: "40"
+    CURRENT_PROJECT_VERSION: "41"
     DEVELOPMENT_TEAM: WY55TM2MU8
     CODE_SIGN_STYLE: Automatic
 
@@ -32,10 +32,13 @@ targets:
         INFOPLIST_FILE: DayFlow/App/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.chisatoo.dayflow
         CODE_SIGN_ENTITLEMENTS: DayFlow/App/DayFlow.entitlements
+        OTHER_SWIFT_FLAGS: "$(inherited) -D FAMILY_CONTROLS_ENABLED"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
     dependencies:
       - target: DayFlowWidgetExtension
+        embed: true
+      - target: DayFlowDeviceActivityReportExtension
         embed: true
 
   DayFlowWidgetExtension:
@@ -51,4 +54,17 @@ targets:
         CODE_SIGN_ENTITLEMENTS: DayFlowWidget/DayFlowWidget.entitlements
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME: WidgetBackground
+        TARGETED_DEVICE_FAMILY: "1"
+
+  DayFlowDeviceActivityReportExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: DayFlowDeviceActivityReport
+      - path: DayFlowShared
+    settings:
+      base:
+        INFOPLIST_FILE: DayFlowDeviceActivityReport/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.chisatoo.dayflow.deviceactivityreport
+        CODE_SIGN_ENTITLEMENTS: DayFlowDeviceActivityReport/DayFlowDeviceActivityReport.entitlements
         TARGETED_DEVICE_FAMILY: "1"

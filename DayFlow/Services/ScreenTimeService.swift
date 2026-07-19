@@ -35,7 +35,7 @@ final class ScreenTimeService {
         #if FAMILY_CONTROLS_ENABLED
         switch AuthorizationCenter.shared.authorizationStatus {
         case .notDetermined: status = .notDetermined
-        case .approved: status = .approved
+        case .approved, .approvedWithDataAccess: status = .approved
         case .denied: status = .denied
         @unknown default: status = .denied
         }
