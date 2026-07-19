@@ -1,6 +1,7 @@
 import Foundation
 import WatchConnectivity
 import WatchKit
+import WidgetKit
 
 final class WatchWakeScheduleConnector: NSObject, ObservableObject, WCSessionDelegate {
     enum SyncState: Equatable {
@@ -15,20 +16,10 @@ final class WatchWakeScheduleConnector: NSObject, ObservableObject, WCSessionDel
     @Published private(set) var selectedTime: Date
     @Published private(set) var syncState: SyncState = .ready
 
-    private static let hourKey = "watchWakeHour"
-    private static let minuteKey = "watchWakeMinute"
     private var pendingPayload: [String: Any]?
 
     override init() {
-        let defaults = UserDefaults.standard
-        let hour = defaults.object(forKey: Self.hourKey) as? Int ?? 7
-        let minute = defaults.object(forKey: Self.minuteKey) as? Int ?? 0
-        selectedTime = Calendar.current.date(
-            bySettingHour: hour,
-            minute: minute,
-            second: 0,
-            of: Date()
-        ) ?? Date()
+        selectedTime = WatchWakeTimeStore.time()
         super.init()
 
         guard WCSession.isSupported() else {
@@ -123,10 +114,8 @@ final class WatchWakeScheduleConnector: NSObject, ObservableObject, WCSessionDel
     }
 
     private func persist(_ time: Date) {
-        let components = Calendar.current.dateComponents([.hour, .minute], from: time)
-        let defaults = UserDefaults.standard
-        defaults.set(components.hour ?? 7, forKey: Self.hourKey)
-        defaults.set(components.minute ?? 0, forKey: Self.minuteKey)
+        WatchWakeTimeStore.save(time)
+        WidgetCenter.shared.reloadTimelines(ofKind: WatchWakeTimeStore.complicationKind)
     }
 
     func session(

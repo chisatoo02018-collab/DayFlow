@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct WatchWakeTimeView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var connector: WatchWakeScheduleConnector
+    @State private var isPresentingEditor = false
 
     var body: some View {
         NavigationStack {
@@ -29,7 +31,18 @@ struct WatchWakeTimeView: View {
             }
             .navigationTitle("DayFlow")
         }
-        .onAppear { connector.requestLatestTime() }
+        .sheet(isPresented: $isPresentingEditor) {
+            NavigationStack {
+                WatchWakeTimeEditor(connector: connector)
+            }
+        }
+        .onAppear {
+            connector.requestLatestTime()
+            openPendingEditor()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { openPendingEditor() }
+        }
     }
 
     @ViewBuilder
@@ -54,6 +67,14 @@ struct WatchWakeTimeView: View {
         case .failed:
             Label("接続を確認してください", systemImage: "exclamationmark.icloud.fill")
                 .foregroundStyle(.red)
+        }
+    }
+
+    private func openPendingEditor() {
+        guard WatchWakeTimeStore.consumeEditorRequest() else { return }
+        Task { @MainActor in
+            await Task.yield()
+            isPresentingEditor = true
         }
     }
 }

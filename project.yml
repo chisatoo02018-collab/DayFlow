@@ -11,7 +11,7 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "1.1.0"
-    CURRENT_PROJECT_VERSION: "42"
+    CURRENT_PROJECT_VERSION: "43"
     DEVELOPMENT_TEAM: WY55TM2MU8
     CODE_SIGN_STYLE: Automatic
 
@@ -49,19 +49,35 @@ targets:
     platform: watchOS
     sources:
       - path: DayFlowWatch
+      - path: DayFlowWatchShared
       - path: DayFlowShared/WakeScheduleMessage.swift
       - path: Assets.xcassets
     settings:
       base:
+        INFOPLIST_FILE: DayFlowWatch/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.chisatoo.dayflow.watchkitapp
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: DayFlow
-        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.chisatoo.dayflow
+        CODE_SIGN_ENTITLEMENTS: DayFlowWatch/DayFlowWatch.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "4"
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+    dependencies:
+      - target: DayFlowWatchWidgetExtension
+        embed: true
+
+  DayFlowWatchWidgetExtension:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: DayFlowWatchWidget
+      - path: DayFlowWatchShared
+    settings:
+      base:
+        INFOPLIST_FILE: DayFlowWatchWidget/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.chisatoo.dayflow.watchkitapp.widget
+        CODE_SIGN_ENTITLEMENTS: DayFlowWatchWidget/DayFlowWatchWidget.entitlements
+        SKIP_INSTALL: YES
 
   DayFlowWidgetExtension:
     type: app-extension
