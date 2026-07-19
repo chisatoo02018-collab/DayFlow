@@ -57,7 +57,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
 
   DayFlowDeviceActivityReportExtension:
-    type: app-extension
+    type: extensionkit-extension
     platform: iOS
     sources:
       - path: DayFlowDeviceActivityReport
