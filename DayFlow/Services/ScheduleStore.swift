@@ -121,6 +121,26 @@ final class ScheduleStore {
         externalScheduleRevision &+= 1
     }
 
+    /// Returns the next wake edge represented by a sleep block connected to midnight.
+    /// The watch uses this to show the same value as the iPhone editor.
+    func nextPlannedWakeTime(now: Date = Date()) -> Date? {
+        let calendar = Calendar.current
+        for offset in 0...1 {
+            guard let day = calendar.date(byAdding: .day, value: offset,
+                                          to: calendar.startOfDay(for: now)) else { continue }
+            let plan = schedule(date: day, kind: .plan)
+            guard let wakeMinute = plan.blocks
+                .filter({ $0.categoryID == "sleep" && $0.start == 0 })
+                .map(\.end)
+                .max(),
+                wakeMinute > 0,
+                let wake = calendar.date(byAdding: .minute, value: wakeMinute, to: day)
+            else { continue }
+            if wake > now { return wake }
+        }
+        return nil
+    }
+
     /// Set the next planned wake edge using the app's canonical in-memory model.
     /// A future clock time belongs to today; a time already passed belongs to tomorrow.
     @discardableResult

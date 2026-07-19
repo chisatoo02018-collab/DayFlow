@@ -31,6 +31,11 @@ struct DayFlowAlarmMetadata: Codable, Hashable, Sendable {
 @available(iOS 26.0, *)
 extension DayFlowAlarmMetadata: AlarmMetadata {}
 
+struct WakeAlarmScheduleOutcome: Sendable {
+    let alarmScheduled: Bool
+    let message: String
+}
+
 struct SetWakeTimeIntent: AppIntent {
     static let title: LocalizedStringResource = "起床予定を設定"
     static let description = IntentDescription("起床予定をDayFlowへ記録し、次の指定時刻にアラームを設定します。")
@@ -48,15 +53,29 @@ struct SetWakeTimeIntent: AppIntent {
     }
 
     static func scheduleAlarm(for time: Date) async throws -> IntentDialog {
+        let outcome = try await scheduleAlarmOutcome(for: time, requestAuthorizationIfNeeded: true)
+        return IntentDialog(stringLiteral: outcome.message)
+    }
+
+    static func scheduleAlarmOutcome(
+        for time: Date,
+        requestAuthorizationIfNeeded: Bool
+    ) async throws -> WakeAlarmScheduleOutcome {
         guard #available(iOS 26.0, *) else {
-            return "起床予定を記録しました。アラーム設定にはiOS 26以降が必要です。"
+            return WakeAlarmScheduleOutcome(
+                alarmScheduled: false,
+                message: "起床予定を記録しました。アラーム設定にはiOS 26以降が必要です。"
+            )
         }
         let manager = AlarmManager.shared
-        if manager.authorizationState == .notDetermined {
+        if manager.authorizationState == .notDetermined, requestAuthorizationIfNeeded {
             _ = try await manager.requestAuthorization()
         }
         guard manager.authorizationState == .authorized else {
-            return "起床予定は記録しましたが、アラームの許可がオフです。設定アプリでDayFlowのアラームを許可してください。"
+            return WakeAlarmScheduleOutcome(
+                alarmScheduled: false,
+                message: "予定は保存しました。iPhoneでDayFlowのアラームを許可してください。"
+            )
         }
 
         let next = Self.nextOccurrence(of: time)
@@ -70,8 +89,17 @@ struct SetWakeTimeIntent: AppIntent {
         let configuration = AlarmManager.AlarmConfiguration<DayFlowAlarmMetadata>.alarm(
             schedule: .fixed(next), attributes: attributes
         )
-        _ = try await manager.schedule(id: UUID(), configuration: configuration)
-        return "\(next.formatted(date: .abbreviated, time: .shortened))に起床アラームを設定しました。"
+        // DayFlow has one canonical wake alarm. Remove older randomly identified alarms
+        // from previous builds, then schedule the replacement with a stable identifier.
+        for alarm in (try? manager.alarms) ?? [] {
+            try? manager.cancel(id: alarm.id)
+        }
+        let alarmID = UUID(uuidString: "0D0F10A7-4A4D-4B1A-A14D-A1A90B3D7F10")!
+        _ = try await manager.schedule(id: alarmID, configuration: configuration)
+        return WakeAlarmScheduleOutcome(
+            alarmScheduled: true,
+            message: "\(next.formatted(date: .abbreviated, time: .shortened))に起床アラームを設定しました。"
+        )
     }
 
     private static func nextOccurrence(of time: Date) -> Date {

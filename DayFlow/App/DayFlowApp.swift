@@ -16,7 +16,7 @@ struct DayFlowApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var calendarService = CalendarService()
     @State private var reminderService = ReminderService()
-    @State private var scheduleStore = ScheduleStore()
+    @State private var scheduleStore: ScheduleStore
     @State private var vaultWriter = VaultWriter()
     @State private var healthService = HealthService()
     @State private var photoMetadataService = PhotoMetadataService()
@@ -25,9 +25,12 @@ struct DayFlowApp: App {
     @State private var locationService: LocationService
 
     init() {
+        let scheduleStore = ScheduleStore()
         let store = PlaceStore()
+        _scheduleStore = State(initialValue: scheduleStore)
         _placeStore = State(initialValue: store)
         _locationService = State(initialValue: LocationService(placeStore: store))
+        WatchWakeScheduleCoordinator.shared.configure(scheduleStore: scheduleStore)
     }
 
     var body: some Scene {

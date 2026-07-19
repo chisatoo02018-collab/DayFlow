@@ -75,10 +75,23 @@ struct WakeTimePickerSheet: View {
         Task {
             do {
                 scheduleStore.setPlannedWakeTime(time)
-                _ = try await SetWakeTimeIntent.scheduleAlarm(for: time)
-                dismiss()
+                let outcome = try await SetWakeTimeIntent.scheduleAlarmOutcome(
+                    for: time,
+                    requestAuthorizationIfNeeded: true
+                )
+                WatchWakeScheduleCoordinator.shared.publish(
+                    time: time,
+                    alarmScheduled: outcome.alarmScheduled,
+                    message: outcome.message
+                )
+                if outcome.alarmScheduled {
+                    dismiss()
+                } else {
+                    errorMessage = outcome.message
+                    isSaving = false
+                }
             } catch {
-                errorMessage = "設定できませんでした。アラームの許可を確認して、もう一度お試しください。"
+                errorMessage = "予定は保存しました。アラームの許可を確認して、もう一度お試しください。"
                 isSaving = false
             }
         }
