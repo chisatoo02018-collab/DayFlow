@@ -102,6 +102,14 @@ struct SetWakeTimeIntent: AppIntent {
         )
     }
 
+    static func cancelScheduledAlarms() {
+        guard #available(iOS 26.0, *) else { return }
+        let manager = AlarmManager.shared
+        for alarm in (try? manager.alarms) ?? [] {
+            try? manager.cancel(id: alarm.id)
+        }
+    }
+
     private static func nextOccurrence(of time: Date) -> Date {
         let calendar = Calendar.current
         let components = calendar.dateComponents([.hour, .minute], from: time)

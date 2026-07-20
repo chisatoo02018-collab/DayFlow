@@ -2,7 +2,7 @@ import Foundation
 import WatchConnectivity
 
 /// Receives wake-time edits from the companion watchOS app and applies them through
-/// the iPhone app's canonical ScheduleStore before asking AlarmKit to replace the alarm.
+/// the iPhone app's canonical ScheduleStore. The Watch schedules its own local alert.
 @MainActor
 final class WatchWakeScheduleCoordinator: NSObject, WCSessionDelegate {
     static let shared = WatchWakeScheduleCoordinator()
@@ -89,38 +89,15 @@ final class WatchWakeScheduleCoordinator: NSObject, WCSessionDelegate {
         case .setWakeTime:
             guard let time = WakeScheduleMessage.clockTime(in: payload) else { return }
             store.setPlannedWakeTime(time)
-
-            do {
-                let outcome = try await SetWakeTimeIntent.scheduleAlarmOutcome(
-                    for: time,
-                    requestAuthorizationIfNeeded: false
-                )
-                let response = WakeScheduleMessage.wakeTimeState(
-                    time: time,
-                    alarmScheduled: outcome.alarmScheduled,
-                    message: outcome.message,
-                    requestID: WakeScheduleMessage.requestID(in: payload)
-                )
-                replyHandler?(response)
-                publish(
-                    time: time,
-                    alarmScheduled: outcome.alarmScheduled,
-                    message: outcome.message
-                )
-            } catch {
-                let response = WakeScheduleMessage.wakeTimeState(
-                    time: time,
-                    alarmScheduled: false,
-                    message: "予定は保存しました。iPhoneでアラーム設定を確認してください。",
-                    requestID: WakeScheduleMessage.requestID(in: payload)
-                )
-                replyHandler?(response)
-                publish(
-                    time: time,
-                    alarmScheduled: false,
-                    message: WakeScheduleMessage.message(in: response)
-                )
-            }
+            SetWakeTimeIntent.cancelScheduledAlarms()
+            let response = WakeScheduleMessage.wakeTimeState(
+                time: time,
+                alarmScheduled: true,
+                message: "起床予定を同期しました。Watchが時刻に通知します。",
+                requestID: WakeScheduleMessage.requestID(in: payload)
+            )
+            replyHandler?(response)
+            publish(time: time, alarmScheduled: true, message: WakeScheduleMessage.message(in: response))
 
         case .requestWakeTime:
             // An App Intent may have changed the shared file while the app was suspended.

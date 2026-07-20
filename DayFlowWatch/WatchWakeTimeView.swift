@@ -58,7 +58,7 @@ struct WatchWakeTimeView: View {
             Label("iPhone接続時に反映", systemImage: "arrow.trianglehead.2.clockwise")
                 .foregroundStyle(.yellow)
         case .confirmed:
-            Label("アラームを設定済み", systemImage: "checkmark.circle.fill")
+            Label("Watchの振動を設定済み", systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
         case .warning:
             Label("iPhoneでアラームを許可", systemImage: "exclamationmark.triangle.fill")

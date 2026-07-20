@@ -2,8 +2,9 @@ import Foundation
 import WatchConnectivity
 import WatchKit
 import WidgetKit
+import UserNotifications
 
-final class WatchWakeScheduleConnector: NSObject, ObservableObject, WCSessionDelegate {
+final class WatchWakeScheduleConnector: NSObject, ObservableObject, WCSessionDelegate, UNUserNotificationCenterDelegate {
     enum SyncState: Equatable {
         case ready
         case sending
@@ -17,10 +18,12 @@ final class WatchWakeScheduleConnector: NSObject, ObservableObject, WCSessionDel
     @Published private(set) var syncState: SyncState = .ready
 
     private var pendingPayload: [String: Any]?
+    private var lastWatchNotificationScheduled: Bool?
 
     override init() {
         selectedTime = WatchWakeTimeStore.time()
         super.init()
+        UNUserNotificationCenter.current().delegate = self
 
         guard WCSession.isSupported() else {
             syncState = .failed
@@ -52,7 +55,21 @@ final class WatchWakeScheduleConnector: NSObject, ObservableObject, WCSessionDel
             hour: components.hour ?? 7,
             minute: components.minute ?? 0
         )
-        transmit(payload)
+        Task { [weak self] in
+            guard let self else { return }
+            let scheduled = await WatchWakeNotificationScheduler.schedule(for: time)
+            await MainActor.run {
+                self.lastWatchNotificationScheduled = scheduled
+                if scheduled {
+                    self.syncState = .confirmed
+                    WKInterfaceDevice.current().play(.success)
+                } else {
+                    self.syncState = .warning("Watchの通知を許可してください。")
+                    WKInterfaceDevice.current().play(.retry)
+                }
+                self.transmit(payload)
+            }
+        }
     }
 
     private func transmit(_ payload: [String: Any]) {
@@ -95,6 +112,16 @@ final class WatchWakeScheduleConnector: NSObject, ObservableObject, WCSessionDel
             if let time = WakeScheduleMessage.clockTime(in: payload) {
                 selectedTime = time
                 persist(time)
+            }
+
+            if let watchScheduled = lastWatchNotificationScheduled {
+                lastWatchNotificationScheduled = nil
+                if watchScheduled {
+                    syncState = .confirmed
+                } else {
+                    syncState = .warning("Watchの通知を許可してください。")
+                }
+                return
             }
 
             switch WakeScheduleMessage.alarmWasScheduled(in: payload) {
@@ -140,5 +167,13 @@ final class WatchWakeScheduleConnector: NSObject, ObservableObject, WCSessionDel
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
         handle(applicationContext)
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 }
