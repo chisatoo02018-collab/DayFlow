@@ -278,6 +278,8 @@ enum DayFlowSharedStore {
         var averages: [CategoryAverage]   // sorted, longest first
         var daysWithData: Int
         var officeDays: Int               // days a 仕事 block was recorded
+        /// At each five-minute point, the category most often recorded across the sample.
+        var timeline: [String?]
     }
 
     /// Preset category id → (name, colour). Stable slugs, mirrored from `TimeCategory.presets`
@@ -306,6 +308,7 @@ enum DayFlowSharedStore {
         var totals: [String: Int] = [:]
         var daysWithData = 0
         var officeDays = 0
+        var timelineCounts = Array(repeating: [String: Int](), count: 288)
 
         for offset in 0..<days {
             guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { continue }
@@ -317,12 +320,15 @@ enum DayFlowSharedStore {
                 let minutes = max(0, block.end - block.start)
                 totals[block.categoryID, default: 0] += minutes
                 if block.categoryID == "work" { sawOffice = true }
+                let lower = max(0, block.start / 5)
+                let upper = min(288, Int(ceil(Double(block.end) / 5.0)))
+                for slot in lower..<upper { timelineCounts[slot][block.categoryID, default: 0] += 1 }
             }
             if sawOffice { officeDays += 1 }
         }
 
         guard daysWithData > 0 else {
-            return TypicalDay(averages: [], daysWithData: 0, officeDays: 0)
+            return TypicalDay(averages: [], daysWithData: 0, officeDays: 0, timeline: [])
         }
 
         let averages = totals.map { id, total -> CategoryAverage in
@@ -333,7 +339,8 @@ enum DayFlowSharedStore {
         .filter { $0.averageMinutes > 0 }
         .sorted { $0.averageMinutes > $1.averageMinutes }
 
-        return TypicalDay(averages: averages, daysWithData: daysWithData, officeDays: officeDays)
+        let timeline = timelineCounts.map { counts in counts.max { $0.value < $1.value }?.key }
+        return TypicalDay(averages: averages, daysWithData: daysWithData, officeDays: officeDays, timeline: timeline)
     }
 
     private static func loadWorkLogs() -> [String: WorkdayRecord] {

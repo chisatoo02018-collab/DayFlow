@@ -18,6 +18,7 @@ struct TimeScheduleView: View {
     @State private var activeCategoryID: String? = TimeCategory.presets.first?.id
     @State private var slots = [String?](repeating: nil, count: slotsPerDay)
     @State private var tagSlots = [Set<String>](repeating: [], count: slotsPerDay)
+    @State private var planBlocks: [TimeBlock] = []
     /// Colours for the 所在地 ring — sensor record, not editable here.
     @State private var locationSlots = [Color?](repeating: nil, count: slotsPerDay)
     @State private var selectedRange: SelectedSlotRange?
@@ -47,13 +48,18 @@ struct TimeScheduleView: View {
                     if canDuplicateFromPlan {
                         DuplicatePlanCard(action: duplicatePlanToActual)
                     }
-                    EditingModeControl(
-                        isEditing: isEditing,
-                        onStart: { isEditing = true },
-                        onDone: finishEditing
-                    )
-                    wheel
-                    if isEditing, let selectedRange {
+                    if kind == .plan {
+                        PlanCalendarEditor(blocks: $planBlocks, date: date, categories: store.categories,
+                                           onSave: savePlanBlocks)
+                    } else {
+                        EditingModeControl(
+                            isEditing: isEditing,
+                            onStart: { isEditing = true },
+                            onDone: finishEditing
+                        )
+                        wheel
+                    }
+                    if kind == .actual, isEditing, let selectedRange {
                         TimeRangeEditor(
                             selection: selectedRange,
                             category: store.category(id: selectedRange.categoryID),
@@ -65,13 +71,15 @@ struct TimeScheduleView: View {
                             onDelete: deleteSelectedRange,
                             onDone: { self.selectedRange = nil }
                         )
-                    } else if isEditing {
+                    } else if kind == .actual, isEditing {
                         Text("塗った区間をタップすると、開始・終了を細かく調整できます")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     categoryStrip
+                        .opacity(kind == .plan ? 0 : 1)
+                        .frame(height: kind == .plan ? 0 : nil)
                         .disabled(!isEditing)
                         .opacity(isEditing ? 1 : 0.45)
                     if comparisonMinutes > 0 {
@@ -325,6 +333,7 @@ struct TimeScheduleView: View {
 
     private func reload() {
         let blocks = store.schedule(date: date, kind: kind).blocks
+        planBlocks = blocks
         slots = TimeGrid.slots(from: blocks)
         tagSlots = TimeGrid.tagSlots(from: blocks)
         selectedRange = nil
@@ -357,6 +366,15 @@ struct TimeScheduleView: View {
                            actual: store.schedule(date: date, kind: .actual),
                            categories: store.categories)
         }
+    }
+
+    private func savePlanBlocks() {
+        let normalized = planBlocks
+            .filter { $0.start < $0.end }
+            .sorted { $0.start < $1.start }
+        store.save(DaySchedule(date: date, kind: .plan, blocks: normalized))
+        slots = TimeGrid.slots(from: normalized)
+        mirrorToVault()
     }
 
     private func overlap(_ lhs: TimeBlock, _ rhs: TimeBlock) -> Int {
@@ -467,6 +485,7 @@ struct TimeScheduleView: View {
     private var wheel: some View {
         ZStack {
             TimeWheelView(slots: $slots, tagSlots: tagSlots, locationSlots: locationSlots,
+                          planSlots: TimeGrid.slots(from: store.schedule(date: date, kind: .plan).blocks),
                           selection: $selectedRange,
                           isEditing: isEditing, activeCategoryID: activeCategoryID,
                           colorFor: colorFor, onCommit: commit)

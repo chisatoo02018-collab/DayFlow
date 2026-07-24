@@ -17,6 +17,9 @@ struct TimeBlock: Identifiable, Codable, Equatable {
     var id: UUID
     /// The primary activity — colors the arc and drives the 内訳 partition.
     var categoryID: String
+    /// A human-readable appointment title. Plans use this to behave like calendar events;
+    /// actual records may leave it empty and remain purely category based.
+    var title: String?
     /// Secondary categories that overlap this stretch without owning it (e.g. a 移動 block
     /// tagged 運動 for a brisk walk). Never colors the main arc; shown as a thin inner ring
     /// and glyphs. Category ids, same namespace as `categoryID`.
@@ -26,10 +29,11 @@ struct TimeBlock: Identifiable, Codable, Equatable {
     var source: TimeBlockSource
     var isUserModified: Bool
 
-    init(id: UUID = UUID(), categoryID: String, tags: [String] = [], start: Int, end: Int,
+    init(id: UUID = UUID(), categoryID: String, title: String? = nil, tags: [String] = [], start: Int, end: Int,
          source: TimeBlockSource = .manual, isUserModified: Bool = false) {
         self.id = id
         self.categoryID = categoryID
+        self.title = title
         self.tags = tags
         self.start = start
         self.end = end
@@ -40,13 +44,14 @@ struct TimeBlock: Identifiable, Codable, Equatable {
     var durationMinutes: Int { max(0, end - start) }
 
     private enum CodingKeys: String, CodingKey {
-        case id, categoryID, tags, start, end, source, isUserModified
+        case id, categoryID, title, tags, start, end, source, isUserModified
     }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         categoryID = try values.decode(String.self, forKey: .categoryID)
+        title = try values.decodeIfPresent(String.self, forKey: .title)
         tags = try values.decodeIfPresent([String].self, forKey: .tags) ?? []
         start = try values.decode(Int.self, forKey: .start)
         end = try values.decode(Int.self, forKey: .end)

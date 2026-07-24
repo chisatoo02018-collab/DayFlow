@@ -116,7 +116,6 @@ struct WakeTimeComplication: Widget {
         .description("起床時刻を表示し、タップして変更できます。")
         .supportedFamilies([
             .accessoryCircular,
-            .accessoryCorner,
             .accessoryInline,
             .accessoryRectangular,
         ])

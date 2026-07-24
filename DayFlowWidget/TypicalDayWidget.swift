@@ -17,7 +17,8 @@ struct TypicalDayEntry: TimelineEntry {
                 .init(id: "leisure", name: "娯楽", colorHex: "#F783AC", averageMinutes: 150),
                 .init(id: "commute", name: "移動", colorHex: "#22B8CF", averageMinutes: 60),
             ],
-            daysWithData: 14, officeDays: 9), openDestination: .insights)
+            daysWithData: 14, officeDays: 9,
+            timeline: Array(repeating: "sleep", count: 84) + Array(repeating: "work", count: 96) + Array(repeating: "leisure", count: 108)), openDestination: .insights)
     }
 }
 
@@ -66,9 +67,12 @@ struct TypicalDayWidgetView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer()
             } else {
-                stackedBar
-                ForEach(entry.typical.averages.prefix(topN)) { avg in
-                    row(avg)
+                HStack(alignment: .top, spacing: 12) {
+                    TypicalDayRing(timeline: entry.typical.timeline, averages: entry.typical.averages)
+                        .frame(width: family == .systemSmall ? 74 : 92, height: family == .systemSmall ? 74 : 92)
+                    VStack(spacing: 5) {
+                        ForEach(entry.typical.averages.prefix(topN)) { avg in row(avg) }
+                    }
                 }
                 if entry.typical.officeDays > 0 {
                     Text("出社 \(entry.typical.officeDays)/\(entry.typical.daysWithData)日")
@@ -78,21 +82,6 @@ struct TypicalDayWidgetView: View {
             }
         }
         .padding(12)
-    }
-
-    /// A single 24h bar, each category a slice proportional to its average minutes.
-    private var stackedBar: some View {
-        GeometryReader { geo in
-            let total = max(1, entry.typical.averages.reduce(0) { $0 + $1.averageMinutes })
-            HStack(spacing: 1) {
-                ForEach(entry.typical.averages) { avg in
-                    Color(hex: avg.colorHex)
-                        .frame(width: geo.size.width * CGFloat(avg.averageMinutes) / CGFloat(total))
-                }
-            }
-            .clipShape(Capsule())
-        }
-        .frame(height: 10)
     }
 
     private func row(_ avg: DayFlowSharedStore.CategoryAverage) -> some View {
@@ -113,12 +102,48 @@ struct TypicalDayWidgetView: View {
     }
 }
 
+private struct TypicalDayRing: View {
+    let timeline: [String?]
+    let averages: [DayFlowSharedStore.CategoryAverage]
+
+    var body: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = min(size.width, size.height) / 2 - 7
+            let colors = Dictionary(uniqueKeysWithValues: averages.map { ($0.id, Color(hex: $0.colorHex)) })
+            for block in runs {
+                var path = Path()
+                path.addArc(center: center, radius: radius,
+                            startAngle: .degrees(Double(block.start) / 1440 * 360 - 90),
+                            endAngle: .degrees(Double(block.end) / 1440 * 360 - 90), clockwise: false)
+                context.stroke(path, with: .color(colors[block.categoryID] ?? .gray), style: StrokeStyle(lineWidth: 12))
+            }
+            let text = context.resolve(Text("平均").font(.caption2.weight(.bold)).foregroundColor(.secondary))
+            context.draw(text, at: center)
+        }
+        .accessibilityLabel("平均的な1日の時間リング")
+    }
+
+    private var runs: [(categoryID: String, start: Int, end: Int)] {
+        var result: [(String, Int, Int)] = []
+        var index = 0
+        while index < timeline.count {
+            guard let category = timeline[index] else { index += 1; continue }
+            var end = index + 1
+            while end < timeline.count, timeline[end] == category { end += 1 }
+            result.append((category, index * 5, end * 5))
+            index = end
+        }
+        return result
+    }
+}
+
 struct TypicalDayWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "TypicalDayWidget", intent: TypicalDayWidgetIntent.self, provider: TypicalDayProvider()) { entry in
             TypicalDayWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
-                .widgetURL(DayFlowSharedStore.deepLink(for: entry.openDestination.route))
+                .widgetURL(DayFlowSharedStore.deepLink(for: .todayActual))
         }
         .configurationDisplayName("よく過ごす1日")
         .description("記録した実績を平均して、平均的な1日の過ごし方を表示します。")

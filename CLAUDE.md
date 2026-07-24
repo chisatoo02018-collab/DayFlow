@@ -48,7 +48,8 @@ When adding or removing Swift files, run `xcodegen generate` before building.
 - **HealthKit→実績リング**: 設定「睡眠を実績リングの正とする」「運動を実績リングに反映」で、実績を開くたび`.task`で自動反映。睡眠(`sleepIntervals`)は主カテゴリ睡眠を置換(手動の他カテゴリは上書きしない・空き時間のみ)、運動(`exerciseIntervals`=appleExerciseTime間隔)は空きは主カテゴリ運動・重なりは運動タグ。メニューから手動取込も可。
 - **バックグラウンド同期**: `HealthBackgroundSync`がHKObserverQuery+enableBackgroundDelivery(.hourly)を登録。Watch sync時にiOSがアプリをバックグラウンド起動しdaily noteの`## ヘルス`を更新+GitHub push。リングの睡眠/運動反映はアプリ前面時のみ。healthkit.background-delivery entitlement必要。
 - **日付選択**: 昨日・今日を主要ショートカットとして常時表示。任意日はカレンダーボタンのグラフィカルDatePickerから選ぶ。
-- **予定パターン**: 現在の予定リングを「仕事の日」「習い事の日」などの名前で永続保存し、別の日へ呼び出せる。`schedule_templates.json`に保存。
+- **予定UI**: 予定はカレンダー型のリストで登録する。各予定はタイトル・開始/終了時刻・カテゴリ色を持ち、予定リングを直接なぞらない。実績リングの内側には当日の予定を細い色リングとして重ね、差分を一目で比較できる。
+- **予定パターン**: 現在の予定を「仕事の日」「習い事の日」などの名前で永続保存し、別の日へ呼び出せる。`schedule_templates.json`に保存。
 - **スクロール共存**: リングの操作ヒット領域はドーナツ形の円周だけ。中央と外側の上下スワイプは親ScrollViewへ渡す。
 - **時刻表示**: リング内側に0〜23時を1時間ごと、同一サイズで表示する。
 - **円グラフUI** (`TimeWheelView`): 24hの放射リング。00:00が上・時計回り（6:00右/12:00下/18:00左）。指ドラッグでカテゴリを塗る。内部は5分×288スロットの `[String?]` を編集し、`TimeGrid` で `[TimeBlock]` と相互変換。塗りは「直前スロット→現在スロットの短い方の弧」を埋めるので速いドラッグでも連続する。

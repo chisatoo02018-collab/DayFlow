@@ -47,7 +47,7 @@ struct StatsWidget: Widget {
         AppIntentConfiguration(kind: kind, intent: StatsWidgetIntent.self, provider: StatsProvider()) { entry in
             StatsWidgetView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
-                .widgetURL(DayFlowSharedStore.deepLink(for: entry.openDestination.route))
+                .widgetURL(DayFlowSharedStore.deepLink(for: .todayActual))
         }
         .configurationDisplayName("DayFlow Stats")
         .description("Completion rates and activity trends.")
