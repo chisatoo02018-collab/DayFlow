@@ -60,7 +60,9 @@ struct PlanCalendarEditor: View {
 
     private var sortedBlocks: [TimeBlock] { blocks.sorted { $0.start < $1.start } }
 
+    @ViewBuilder
     private func eventRow(_ block: TimeBlock) -> some View {
+        let overlaps = overlappingBlocks(for: block)
         HStack(spacing: 12) {
             Text("\(block.start.asClock)\n\(block.end.asClock)")
                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
@@ -71,11 +73,26 @@ struct PlanCalendarEditor: View {
                     .font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
                 Text(category(block.categoryID)?.name ?? block.categoryID)
                     .font(.caption).foregroundStyle(.secondary)
+                if !overlaps.isEmpty {
+                    Label("重なり \(overlaps.count)件", systemImage: "line.3.horizontal.decrease.circle")
+                        .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                }
             }
             Spacer()
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
         }
         .padding(12)
+        .background {
+            if !overlaps.isEmpty {
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(category(block.categoryID)?.color ?? .gray,
+                            style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+            }
+        }
+    }
+
+    private func overlappingBlocks(for block: TimeBlock) -> [TimeBlock] {
+        blocks.filter { $0.id != block.id && $0.start < block.end && block.start < $0.end }
     }
 
     private func replace(_ updated: TimeBlock) {

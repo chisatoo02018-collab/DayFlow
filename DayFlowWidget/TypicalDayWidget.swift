@@ -46,7 +46,14 @@ struct TypicalDayWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: TypicalDayEntry
 
-    private var topN: Int { family == .systemLarge ? 6 : (family == .systemMedium ? 4 : 3) }
+    private var topN: Int { family == .systemLarge ? 6 : 4 }
+    private var ringSize: CGFloat {
+        switch family {
+        case .systemSmall: 112
+        case .systemLarge: 158
+        default: 136
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -67,12 +74,10 @@ struct TypicalDayWidgetView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer()
             } else {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .center, spacing: 10) {
                     TypicalDayRing(timeline: entry.typical.timeline, averages: entry.typical.averages)
-                        .frame(width: family == .systemSmall ? 74 : 92, height: family == .systemSmall ? 74 : 92)
-                    VStack(spacing: 5) {
-                        ForEach(entry.typical.averages.prefix(topN)) { avg in row(avg) }
-                    }
+                        .frame(width: ringSize, height: ringSize)
+                    legend
                 }
                 if entry.typical.officeDays > 0 {
                     Text("出社 \(entry.typical.officeDays)/\(entry.typical.daysWithData)日")
@@ -85,13 +90,20 @@ struct TypicalDayWidgetView: View {
     }
 
     private func row(_ avg: DayFlowSharedStore.CategoryAverage) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Circle().fill(Color(hex: avg.colorHex)).frame(width: 8, height: 8)
-            Text(avg.name).font(.caption2)
-            Spacer()
+            Text(avg.name).font(.caption2).lineLimit(1)
             Text(hoursMinutes(avg.averageMinutes))
                 .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
         }
+    }
+
+    private var legend: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
+                  alignment: .leading, spacing: 6) {
+            ForEach(entry.typical.averages.prefix(topN)) { avg in row(avg) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func hoursMinutes(_ minutes: Int) -> String {
@@ -109,14 +121,14 @@ private struct TypicalDayRing: View {
     var body: some View {
         Canvas { context, size in
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let radius = min(size.width, size.height) / 2 - 7
+            let radius = min(size.width, size.height) / 2 - 10
             let colors = Dictionary(uniqueKeysWithValues: averages.map { ($0.id, Color(hex: $0.colorHex)) })
             for block in runs {
                 var path = Path()
                 path.addArc(center: center, radius: radius,
                             startAngle: .degrees(Double(block.start) / 1440 * 360 - 90),
                             endAngle: .degrees(Double(block.end) / 1440 * 360 - 90), clockwise: false)
-                context.stroke(path, with: .color(colors[block.categoryID] ?? .gray), style: StrokeStyle(lineWidth: 12))
+                context.stroke(path, with: .color(colors[block.categoryID] ?? .gray), style: StrokeStyle(lineWidth: 18))
             }
             let text = context.resolve(Text("平均").font(.caption2.weight(.bold)).foregroundColor(.secondary))
             context.draw(text, at: center)

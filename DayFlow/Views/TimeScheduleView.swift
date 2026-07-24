@@ -485,7 +485,7 @@ struct TimeScheduleView: View {
     private var wheel: some View {
         ZStack {
             TimeWheelView(slots: $slots, tagSlots: tagSlots, locationSlots: locationSlots,
-                          planSlots: TimeGrid.slots(from: store.schedule(date: date, kind: .plan).blocks),
+                          planBlocks: store.schedule(date: date, kind: .plan).blocks,
                           selection: $selectedRange,
                           isEditing: isEditing, activeCategoryID: activeCategoryID,
                           colorFor: colorFor, onCommit: commit)
