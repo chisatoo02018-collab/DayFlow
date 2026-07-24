@@ -26,8 +26,6 @@ struct TimeWheelView: View {
     /// Objective sensor fact — kept visually separate from the subjective activity arc
     /// rather than merged into it. Read-only.
     var locationSlots: [Color?] = []
-    /// The plan for this day, drawn inside an actual ring as a quiet reference layer.
-    var planBlocks: [TimeBlock] = []
     @Binding var selection: SelectedSlotRange?
     let isEditing: Bool
     /// nil id ("消しゴム") erases; otherwise the category being painted.
@@ -198,7 +196,6 @@ struct TimeWheelView: View {
         drawTrack(&ctx, center: center, radius: radius)
         drawSegments(&ctx, center: center, radius: radius)
         drawTagRing(&ctx, center: center, radius: radius)
-        drawPlanRing(&ctx, center: center, radius: radius)
         drawLocationRing(&ctx, center: center, radius: radius)
         drawHourTicks(&ctx, center: center, radius: radius)
         drawHourLabels(&ctx, center: center, radius: radius)
@@ -266,23 +263,6 @@ struct TimeWheelView: View {
             ctx.stroke(path, with: .color(color),
                        style: StrokeStyle(lineWidth: 5, lineCap: .butt))
             run = end
-        }
-    }
-
-    private func drawPlanRing(_ ctx: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
-        guard !planBlocks.isEmpty else { return }
-        let planRadius = radius - thickness / 2 - 13
-        for block in planBlocks {
-            var path = Path()
-            path.addArc(center: center, radius: planRadius,
-                        startAngle: angle(forMinute: block.start),
-                        endAngle: angle(forMinute: block.end), clockwise: false)
-            let isOverlapping = planBlocks.contains {
-                $0.id != block.id && $0.start < block.end && block.start < $0.end
-            }
-            ctx.stroke(path, with: .color(colorFor(block.categoryID).opacity(0.85)),
-                       style: StrokeStyle(lineWidth: 7, lineCap: .butt,
-                                          dash: isOverlapping ? [3, 3] : []))
         }
     }
 

@@ -57,6 +57,8 @@ struct TimeScheduleView: View {
                             onStart: { isEditing = true },
                             onDone: finishEditing
                         )
+                        PlanTimelineStrip(blocks: store.schedule(date: date, kind: .plan).blocks,
+                                          colorFor: colorFor)
                         wheel
                     }
                     if kind == .actual, isEditing, let selectedRange {
@@ -485,7 +487,6 @@ struct TimeScheduleView: View {
     private var wheel: some View {
         ZStack {
             TimeWheelView(slots: $slots, tagSlots: tagSlots, locationSlots: locationSlots,
-                          planBlocks: store.schedule(date: date, kind: .plan).blocks,
                           selection: $selectedRange,
                           isEditing: isEditing, activeCategoryID: activeCategoryID,
                           colorFor: colorFor, onCommit: commit)
@@ -653,6 +654,54 @@ struct TimeScheduleView: View {
         var end = start + 1
         while end < slots.count, slots[end] == categoryID { end += 1 }
         selectedRange = SelectedSlotRange(start: start, end: end, categoryID: categoryID)
+    }
+}
+
+/// Planned appointments are deliberately outside the actual ring. Overlapping plans are
+/// placed on separate lanes rather than overwriting each other, so planned and recorded
+/// time remain independently readable.
+private struct PlanTimelineStrip: View {
+    let blocks: [TimeBlock]
+    let colorFor: (String) -> Color
+
+    var body: some View {
+        if !blocks.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("予定", systemImage: "calendar")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Canvas { context, size in
+                    let lanes = arrangedBlocks
+                    let laneHeight: CGFloat = 10
+                    let gap: CGFloat = 3
+                    for (lane, laneBlocks) in lanes.enumerated() {
+                        for block in laneBlocks {
+                            let x = size.width * CGFloat(block.start) / 1440
+                            let width = max(2, size.width * CGFloat(block.end - block.start) / 1440)
+                            let y = CGFloat(lane) * (laneHeight + gap)
+                            context.fill(Path(roundedRect: CGRect(x: x, y: y, width: width, height: laneHeight),
+                                              cornerRadius: 3), with: .color(colorFor(block.categoryID)))
+                        }
+                    }
+                }
+                .frame(height: CGFloat(arrangedBlocks.count) * 13)
+                HStack { Text("0時"); Spacer(); Text("12時"); Spacer(); Text("24時") }
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            .padding(12)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    private var arrangedBlocks: [[TimeBlock]] {
+        var lanes: [[TimeBlock]] = []
+        for block in blocks.sorted(by: { $0.start < $1.start }) {
+            if let index = lanes.firstIndex(where: { ($0.last?.end ?? 0) <= block.start }) {
+                lanes[index].append(block)
+            } else {
+                lanes.append([block])
+            }
+        }
+        return lanes
     }
 }
 

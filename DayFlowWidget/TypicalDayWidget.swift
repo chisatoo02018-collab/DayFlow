@@ -46,12 +46,12 @@ struct TypicalDayWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: TypicalDayEntry
 
-    private var topN: Int { family == .systemLarge ? 6 : 4 }
+    private var topN: Int { family == .systemLarge ? 5 : (family == .systemMedium ? 4 : 2) }
     private var ringSize: CGFloat {
         switch family {
-        case .systemSmall: 112
-        case .systemLarge: 158
-        default: 136
+        case .systemSmall: 88
+        case .systemLarge: 124
+        default: 104
         }
     }
 
@@ -74,11 +74,7 @@ struct TypicalDayWidgetView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer()
             } else {
-                HStack(alignment: .center, spacing: 10) {
-                    TypicalDayRing(timeline: entry.typical.timeline, averages: entry.typical.averages)
-                        .frame(width: ringSize, height: ringSize)
-                    legend
-                }
+                content
                 if entry.typical.officeDays > 0 {
                     Text("出社 \(entry.typical.officeDays)/\(entry.typical.daysWithData)日")
                         .font(.caption2).foregroundStyle(.secondary)
@@ -99,11 +95,26 @@ struct TypicalDayWidgetView: View {
     }
 
     private var legend: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
-                  alignment: .leading, spacing: 6) {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)],
+                  alignment: .leading, spacing: 4) {
             ForEach(entry.typical.averages.prefix(topN)) { avg in row(avg) }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var content: some View {
+        if family == .systemSmall {
+            VStack(spacing: 5) {
+                TypicalDayRing(timeline: entry.typical.timeline, averages: entry.typical.averages)
+                    .frame(width: ringSize, height: ringSize)
+                legend
+            }
+        } else {
+            HStack(alignment: .center, spacing: 8) {
+                TypicalDayRing(timeline: entry.typical.timeline, averages: entry.typical.averages)
+                    .frame(width: ringSize, height: ringSize)
+                legend.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     private func hoursMinutes(_ minutes: Int) -> String {
@@ -128,7 +139,7 @@ private struct TypicalDayRing: View {
                 path.addArc(center: center, radius: radius,
                             startAngle: .degrees(Double(block.start) / 1440 * 360 - 90),
                             endAngle: .degrees(Double(block.end) / 1440 * 360 - 90), clockwise: false)
-                context.stroke(path, with: .color(colors[block.categoryID] ?? .gray), style: StrokeStyle(lineWidth: 18))
+                context.stroke(path, with: .color(colors[block.categoryID] ?? .gray), style: StrokeStyle(lineWidth: 14))
             }
             let text = context.resolve(Text("平均").font(.caption2.weight(.bold)).foregroundColor(.secondary))
             context.draw(text, at: center)
